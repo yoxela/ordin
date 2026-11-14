@@ -27,6 +27,10 @@ All notable changes to Ordin are recorded here. The format follows [Keep a Chang
   - `cargo xtask check-layers` also checks `fuzz/`: it must be GPL-3.0-or-later, with matching SPDX headers. It takes an optional `--manifest-path`.
   - New tests close three gaps that mutation testing found in `xtask`: the "violations found" path of the binary, and the dev and build dependency kinds.
 
+### Changed
+
+- The README describes Ordin's lifecycle model directly, without comparing it to other systems.
+
 ### Fixed
 
 - CI installs `cargo-deny` with the pinned toolchain named explicitly, which removes cargo's toolchain-override warning, and the cached binary's key now includes the toolchain.
