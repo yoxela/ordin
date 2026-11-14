@@ -1,0 +1,60 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-FileCopyrightText: 2026 The Ordin Authors
+
+# Release builds (ORD-004). A signed v* tag on main builds every target in
+# the pinned container (scripts/release/build.sh) and creates a DRAFT
+# release with the archives, SHA256SUMS and build provenance. Nothing is
+# published here: the maintainer runs `make release-sign TAG=...`, which
+# rebuilds the tag, requires every file to match byte for byte, signs the
+# files and publishes the release.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions: {}
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  draft:
+    name: build the draft release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    # The only workflow that can write: the draft release, and the
+    # provenance attestation signed with the workflow's own identity.
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    env:
+      TAG: ${{ github.ref_name }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          # The tag object and main's history, for the checks below.
+          fetch-depth: 0
+      # An early check only: release-sign verifies the tag again against the
+      # maintainer's own copy of the signers, not this one.
+      - name: Check the tag is signed and on main
+        run: |
+          git fetch --force origin "+refs/tags/$TAG:refs/tags/$TAG"
+          git -c gpg.ssh.allowedSignersFile=release/allowed_signers -c gpg.minTrustLevel=fully \
+            verify-tag "$TAG"
+          git merge-base --is-ancestor "$TAG^{commit}" origin/main
+      - name: Build every target in the pinned container
+        run: scripts/release/build.sh . "$RUNNER_TEMP/release" "$TAG"
+      - uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: ${{ runner.temp }}/release/dist/*
+      - name: Create the draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --draft --verify-tag --title "Ordin ${TAG#v}" \
+            --notes "Built by CI from $TAG, then rebuilt, compared and signed by the maintainer before publishing. README.md says how to verify the signatures and provenance." \
+            "$RUNNER_TEMP"/release/dist/*

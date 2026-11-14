@@ -26,6 +26,15 @@ All notable changes to Ordin are recorded here. The format follows [Keep a Chang
   - A nightly workflow fuzzes every target (a crash opens or updates a `fuzz-crash` issue that names the target; the reproducer stays in the run's artifact), runs `cargo mutants` over the whole workspace (reported only), and reports branch coverage on the pinned nightly.
   - `cargo xtask check-layers` also checks `fuzz/`: it must be GPL-3.0-or-later, with matching SPDX headers. It takes an optional `--manifest-path`.
   - New tests close three gaps that mutation testing found in `xtask`: the "violations found" path of the binary, and the dev and build dependency kinds.
+- ORD-004: release builds.
+  - `release/Dockerfile` is the pinned build environment: Ubuntu 24.04 by digest, packages from a dated archive snapshot, rustup by version and checksum, and the Rust toolchain from `rust-toolchain.toml`. `scripts/release/build.sh` builds a tagged checkout in it: dependencies are fetched first, then everything is built with no network, as the calling user, with all capabilities dropped and the source read-only. Two builds from different paths and at different times give identical files.
+  - Four targets: x86\_64 and aarch64, glibc (2.34 or newer) and statically linked musl. Build paths are remapped, `SOURCE_DATE_EPOCH` comes from the tagged commit, and the release profile uses one codegen unit and strips debug information.
+  - `cargo xtask dist` builds the six programs and packs one deterministic `.tar.gz` per target (sorted, owned by root, fixed modes and timestamps), with the license texts and README, plus a `SHA256SUMS` file. It refuses to build while a shipped program links third-party crates, because the archives don't carry their license notices yet.
+  - `cargo xtask pre-release` (`make pre-release`) checks that `main` is clean and matches origin, that the version has a dated changelog heading and no tag yet, and that every check on the commit passed, then prints the tag commands.
+  - A signed `v*` tag runs the new release workflow, which verifies the tag, builds in the container, records build provenance and creates a draft release. It is the only workflow allowed to write.
+  - `cargo xtask release-sign` (`make release-sign TAG=…`) verifies the tag against the maintainer's own signers file, checks the draft's files, checksums and provenance, rebuilds the tag and requires every file to match, signs each file with the SSH release key, asks, uploads the signatures, checks the draft again and publishes it.
+  - `release/allowed_signers` holds the public keys: one for tags (namespace `git`) and one for release files (namespace `ordin-release`). The README says how to verify a release.
+  - CI runs `shellcheck` on the release scripts.
 
 ### Changed
 

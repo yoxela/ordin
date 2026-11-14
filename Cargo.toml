@@ -32,3 +32,10 @@ panic = "deny"
 # The layer-0 I/O bans live in each layer-0 crate's clippy.toml.
 disallowed_types = "deny"
 disallowed_methods = "deny"
+
+# Release builds are reproducible (ORD-004): one codegen unit, so the output
+# doesn't depend on how work was split, and no debug information, which
+# would carry build paths.
+[profile.release]
+codegen-units = 1
+strip = "debuginfo"

@@ -1,0 +1,14 @@
+# SPDX-License-Identifier: CC-BY-4.0
+# SPDX-FileCopyrightText: 2026 The Ordin Authors
+#
+# The keys that sign Ordin's release tags and release files, in OpenSSH's
+# allowed_signers format. Each key may sign in one namespace only: "git"
+# for tags, "ordin-release" for release files. To verify a release file:
+#
+#   ssh-keygen -Y verify -f allowed_signers -I ordin-release \
+#     -n ordin-release -s FILE.sig < FILE
+#
+# Release tag signer (fingerprint SHA256:/ktkj4YRa8Hx8ZXqxh3g/UnBTGrqAlbsTkiUM7hgEkA)
+barraterre namespaces="git" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIA9ccCNT49SGbwghygX8QkAm18Yv3p2e0FzK4neIh4jI
+# Release file signer (fingerprint SHA256:p5FvVJ95B/6Xamk770RHnAK8RxwOZ/4KPVhM1c/vRqs)
+ordin-release namespaces="ordin-release" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIApXCHMHm9O/Ply72NbbcQVXEdvGnESEFkTMpHniznfk
