@@ -1,0 +1,15 @@
+[package]
+name = "ordin-solve"
+description = "Dependency resolution, the preference policy and conflict explanations"
+license = "GPL-3.0-or-later"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[package.metadata.ordin]
+layer = 2
+
+[lints]
+workspace = true

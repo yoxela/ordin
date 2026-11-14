@@ -1,0 +1,15 @@
+[package]
+name = "ordin-tree"
+description = "Tree entries, the chunk index and the content-defined chunker, with their canonical encodings and digests"
+license = "MIT OR Apache-2.0"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[package.metadata.ordin]
+layer = 0
+
+[lints]
+workspace = true

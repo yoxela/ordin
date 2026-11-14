@@ -1,0 +1,15 @@
+[package]
+name = "ordin-build"
+description = "Packaging rungs 2 and 3: fetching sources, applying patches and running a recipe in the build sandbox"
+license = "GPL-3.0-or-later"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[package.metadata.ordin]
+layer = 2
+
+[lints]
+workspace = true

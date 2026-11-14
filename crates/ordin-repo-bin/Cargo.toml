@@ -1,0 +1,19 @@
+[package]
+name = "ordin-repo-bin"
+description = "The repository publishing program"
+license = "GPL-3.0-or-later"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[package.metadata.ordin]
+layer = 3
+
+[[bin]]
+name = "ordin-repo"
+path = "src/main.rs"
+
+[lints]
+workspace = true
