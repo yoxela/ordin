@@ -82,8 +82,13 @@ jobs:
         id: deny-cache
         with:
           path: ~/.cargo/bin/cargo-deny
-          key: cargo-deny-${{ runner.os }}-${{ env.CARGO_DENY_VERSION }}
+          key: cargo-deny-${{ runner.os }}-${{ env.CARGO_DENY_VERSION }}-${{ hashFiles('rust-toolchain.toml') }}
       - name: Install cargo-deny
         if: steps.deny-cache.outputs.cache-hit != 'true'
-        run: cargo install cargo-deny --locked --version "$CARGO_DENY_VERSION"
+        # Name the pinned toolchain explicitly. Without it, cargo install warns
+        # that rust-toolchain.toml overrides the runner's default toolchain.
+        run: |
+          toolchain="$(sed -n 's/^channel = "\(.*\)"$/\1/p' rust-toolchain.toml)"
+          test -n "$toolchain"
+          cargo "+$toolchain" install cargo-deny --locked --version "$CARGO_DENY_VERSION"
       - run: cargo deny check
