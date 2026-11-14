@@ -1,0 +1,87 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-FileCopyrightText: 2026 The Ordin Authors
+
+# Mutation testing on the code a pull request changes (ORD-003). A mutant no
+# test catches fails the job: it is a missing test, or a harness that can't
+# see the thing under test. The whole workspace runs nightly (nightly.yml).
+name: Mutants
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mutants-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+  CARGO_MUTANTS_VERSION: "27.1.0"
+
+jobs:
+  mutants:
+    name: mutants (changed code)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          # The base commit is needed to diff the pull request against it.
+          fetch-depth: 0
+      - name: Install the pinned toolchain (rust-toolchain.toml)
+        run: rustup install
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+          key: cargo-registry-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: tool-cache
+        with:
+          path: ~/.cargo/bin/cargo-mutants
+          key: cargo-mutants-${{ runner.os }}-${{ env.CARGO_MUTANTS_VERSION }}-${{ hashFiles('rust-toolchain.toml') }}
+      - name: Install cargo-mutants
+        if: steps.tool-cache.outputs.cache-hit != 'true'
+        run: |
+          toolchain="$(sed -n 's/^channel = "\(.*\)"$/\1/p' rust-toolchain.toml)"
+          test -n "$toolchain"
+          cargo "+$toolchain" install cargo-mutants --locked --version "$CARGO_MUTANTS_VERSION"
+      - name: Diff the pull request against its base
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: git diff "$BASE_SHA" HEAD > "$RUNNER_TEMP/pr.diff"
+      # Exit codes: 0 all caught, 2 a mutant was missed, 3 only timeouts (the
+      # tests hung on a mutant, so they did detect it). Anything else is a
+      # failure to run.
+      - name: Test the mutants in the changed code
+        run: |
+          set +e
+          cargo mutants --in-diff "$RUNNER_TEMP/pr.diff" --jobs 2 --no-shuffle
+          rc=$?
+          set -e
+          if [ -f mutants.out/missed.txt ] && [ -s mutants.out/missed.txt ]; then
+            {
+              echo "### Mutants no test caught"
+              echo
+              echo '```'
+              cat mutants.out/missed.txt
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+          case "$rc" in
+            0|3) exit 0 ;;
+            *) exit "$rc" ;;
+          esac
+      - name: Keep the mutation report
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: mutants-out
+          path: mutants.out
+          retention-days: 14

@@ -249,15 +249,13 @@ pub fn check(model: &Model, root: &Path) -> Result<Vec<Violation>, crate::Error>
         };
 
         let license = package.license.as_deref().unwrap_or_default();
-        for file in rust_files(&package.manifest_dir)
-            .map_err(|e| crate::Error::io(&package.manifest_dir, &e))?
-        {
-            let contents = fs::read_to_string(&file).map_err(|e| crate::Error::io(&file, &e))?;
-            if let Err(e) = check_header(&contents, license) {
-                let shown = file.strip_prefix(root).unwrap_or(&file).display();
-                push(&mut out, Rule::SpdxHeader, format!("{shown}: {e}"));
-            }
-        }
+        check_headers(
+            &package.name,
+            &package.manifest_dir,
+            license,
+            root,
+            &mut out,
+        )?;
 
         let crate_manifest = read_toml(&package.manifest_dir.join("Cargo.toml"))?;
         if let Err(e) = check_lints(&package.name, &workspace_manifest, &crate_manifest) {
@@ -283,7 +281,60 @@ pub fn check(model: &Model, root: &Path) -> Result<Vec<Violation>, crate::Error>
             (false, false) => {}
         }
     }
+    check_fuzz(root, &mut out)?;
     Ok(out)
+}
+
+/// The fuzz workspace (`fuzz/`) is not a member, but it is GPL like every
+/// other tool, and its sources carry the matching header.
+fn check_fuzz(root: &Path, out: &mut Vec<Violation>) -> Result<(), crate::Error> {
+    let dir = root.join("fuzz");
+    let manifest = dir.join("Cargo.toml");
+    if !manifest.exists() {
+        return Ok(());
+    }
+    let fuzz = read_toml(&manifest)?;
+    let package = fuzz.get("package");
+    let field = |key: &str| {
+        package
+            .and_then(|p| p.get(key))
+            .and_then(toml::Value::as_str)
+    };
+    let name = field("name").unwrap_or("fuzz").to_owned();
+    let license = field("license").unwrap_or_default();
+    if license != crate::rules::GPL {
+        out.push(Violation {
+            crate_name: name.clone(),
+            rule: Rule::License,
+            message: format!(
+                "is licensed {license}, but fuzz/ must be {}",
+                crate::rules::GPL
+            ),
+        });
+    }
+    check_headers(&name, &dir, license, root, out)
+}
+
+/// Checks the SPDX header of every `.rs` file under `dir`.
+fn check_headers(
+    name: &str,
+    dir: &Path,
+    license: &str,
+    root: &Path,
+    out: &mut Vec<Violation>,
+) -> Result<(), crate::Error> {
+    for file in rust_files(dir).map_err(|e| crate::Error::io(dir, &e))? {
+        let contents = fs::read_to_string(&file).map_err(|e| crate::Error::io(&file, &e))?;
+        if let Err(e) = check_header(&contents, license) {
+            let shown = file.strip_prefix(root).unwrap_or(&file).display();
+            out.push(Violation {
+                crate_name: name.to_owned(),
+                rule: Rule::SpdxHeader,
+                message: format!("{shown}: {e}"),
+            });
+        }
+    }
+    Ok(())
 }
 
 fn read_toml(path: &Path) -> Result<toml::Table, crate::Error> {

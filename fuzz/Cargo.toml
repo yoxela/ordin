@@ -1,0 +1,23 @@
+# Fuzz targets for Ordin, built with cargo-fuzz on the nightly toolchain
+# pinned in fuzz/rust-toolchain.toml. This is its own Cargo workspace, so
+# the stable workspace never builds nightly-only code.
+#
+# There are no targets yet: the first arrives with ORD-011 (version parsing).
+# Add one with `cargo fuzz add <name>` from this directory. Every parser of
+# outside input gets a target (see CLAUDE.md's definition of done).
+
+[package]
+name = "ordin-fuzz"
+version = "0.0.0"
+edition = "2024"
+license = "GPL-3.0-or-later"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4.13"
+
+[workspace]
+members = ["."]

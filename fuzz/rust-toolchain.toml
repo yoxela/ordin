@@ -1,0 +1,6 @@
+[toolchain]
+# The one pinned nightly, used only for fuzzing and branch coverage. The
+# nightly CI workflow reads it from here. Bump it deliberately.
+channel = "nightly-2026-11-01"
+components = ["llvm-tools-preview"]
+profile = "minimal"
