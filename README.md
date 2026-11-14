@@ -2,7 +2,7 @@
 
 Ordin is a package manager for Linux servers, written in Rust.
 
-It is inspired by AIX installp: changes are applied, then committed or rejected; packages come as base and update packages; and whole systems are pinned to tested levels. It is built on modern foundations: immutable, content-addressed generations (composefs-style `/usr` images protected by fs-verity), declarative actions instead of maintainer scripts, TUF-signed repositories, and a small privileged daemon with unprivileged helpers.
+Changes are applied, then committed or rejected; packages come as base and update packages; and whole systems are pinned to tested levels. It is built on modern foundations: immutable, content-addressed generations (composefs-style `/usr` images protected by fs-verity), declarative actions instead of maintainer scripts, TUF-signed repositories, and a small privileged daemon with unprivileged helpers.
 
 Ordin is the package manager of Yoxela, a Linux-based operating system for servers only.
 
