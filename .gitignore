@@ -1,0 +1,20 @@
+# Local environment (holds credentials); never commit
+.envrc
+
+# Build output
+/target
+
+# Fuzzing (cargo-fuzz)
+/fuzz/target
+/fuzz/artifacts
+/fuzz/corpus
+/fuzz/coverage
+
+# Coverage (cargo-llvm-cov)
+/lcov.info
+*.profraw
+*.profdata
+
+# Mutation testing (cargo-mutants)
+/mutants.out
+/mutants.out.old
