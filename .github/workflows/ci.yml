@@ -35,6 +35,29 @@ jobs:
         run: rustup install
       - run: cargo fmt --all --check
 
+  layers:
+    name: layer and license rules
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install the pinned toolchain (rust-toolchain.toml)
+        run: rustup install
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            target
+          key: cargo-${{ runner.os }}-layers-${{ hashFiles('rust-toolchain.toml', 'Cargo.lock') }}
+      # Layers, licenses, the layer-0 I/O ban, what ordind may link, SPDX
+      # headers, and the lint and clippy configuration (ORD-002). The I/O ban
+      # itself is enforced by clippy in the check job.
+      - run: cargo xtask check-layers
+
   check:
     name: clippy, build and test (${{ matrix.arch }})
     strategy:

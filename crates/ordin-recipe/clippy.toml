@@ -1,0 +1,42 @@
+# This crate is in layer 0, which does no I/O (see the architecture).
+# A crate's own clippy.toml replaces the workspace's, so this repeats the
+# workspace settings. `cargo xtask check-layers` keeps them in step.
+
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true
+allow-panic-in-tests = true
+
+disallowed-types = [
+  { path = "std::fs::File", reason = "layer-0 crates do no I/O" },
+  { path = "std::fs::OpenOptions", reason = "layer-0 crates do no I/O" },
+  { path = "std::fs::DirBuilder", reason = "layer-0 crates do no I/O" },
+  { path = "std::fs::ReadDir", reason = "layer-0 crates do no I/O" },
+  { path = "std::fs::DirEntry", reason = "layer-0 crates do no I/O" },
+  { path = "std::net::TcpStream", reason = "layer-0 crates do no I/O" },
+  { path = "std::net::TcpListener", reason = "layer-0 crates do no I/O" },
+  { path = "std::net::UdpSocket", reason = "layer-0 crates do no I/O" },
+  { path = "std::process::Command", reason = "layer-0 crates do no I/O" },
+  { path = "std::process::Child", reason = "layer-0 crates do no I/O" },
+]
+
+disallowed-methods = [
+  { path = "std::fs::read", reason = "layer-0 crates do no I/O" },
+  { path = "std::fs::read_to_string", reason = "layer-0 crates do no I/O" },
+  { path = "std::fs::write", reason = "layer-0 crates do no I/O" },
+  { path = "std::fs::read_dir", reason = "layer-0 crates do no I/O" },
+  { path = "std::fs::create_dir", reason = "layer-0 crates do no I/O" },
+  { path = "std::fs::create_dir_all", reason = "layer-0 crates do no I/O" },
+  { path = "std::fs::remove_file", reason = "layer-0 crates do no I/O" },
+  { path = "std::fs::remove_dir", reason = "layer-0 crates do no I/O" },
+  { path = "std::fs::remove_dir_all", reason = "layer-0 crates do no I/O" },
+  { path = "std::fs::rename", reason = "layer-0 crates do no I/O" },
+  { path = "std::fs::copy", reason = "layer-0 crates do no I/O" },
+  { path = "std::fs::metadata", reason = "layer-0 crates do no I/O" },
+  { path = "std::fs::symlink_metadata", reason = "layer-0 crates do no I/O" },
+  { path = "std::fs::canonicalize", reason = "layer-0 crates do no I/O" },
+  { path = "std::fs::hard_link", reason = "layer-0 crates do no I/O" },
+  { path = "std::fs::read_link", reason = "layer-0 crates do no I/O" },
+  { path = "std::fs::set_permissions", reason = "layer-0 crates do no I/O" },
+  { path = "std::fs::exists", reason = "layer-0 crates do no I/O" },
+  { path = "std::net::ToSocketAddrs::to_socket_addrs", reason = "layer-0 crates do no I/O" },
+]
