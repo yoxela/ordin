@@ -1,0 +1,20 @@
+[package]
+name = "xtask"
+description = "Project tooling for Ordin: the layer, license, header and lint-configuration checks"
+license = "GPL-3.0-or-later"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[package.metadata.ordin]
+layer = "tool"
+
+[dependencies]
+cargo_metadata = "0.23.1"
+serde_json = "1.0.154"
+toml = "1.2.1"
+
+[lints]
+workspace = true
