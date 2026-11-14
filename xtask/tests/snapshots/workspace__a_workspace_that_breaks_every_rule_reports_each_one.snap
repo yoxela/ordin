@@ -1,0 +1,13 @@
+---
+source: xtask/tests/workspace.rs
+assertion_line: 49
+expression: "report.join(\"\\n\")"
+---
+[license] bad-core is licensed GPL-3.0-or-later, but its layer requires MIT OR Apache-2.0
+[upward-dependency] bad-core (layer 0) depends on engine (layer 2)
+[spdx-header] bad-core crates/bad-core/src/lib.rs: first line should be `// SPDX-License-Identifier: GPL-3.0-or-later`, found `// SPDX-License-Identifier: MIT OR Apache-2.0`
+[lint-table] bad-core [lints] must be exactly `workspace = true`
+[clippy-config] bad-core is in layer 0 but has no clippy.toml banning I/O
+[clippy-config] engine has its own clippy.toml, which would replace the workspace's; only layer-0 crates may
+[layer] no-layer has no [package.metadata.ordin] layer
+[spdx-header] ordin-fuzz fuzz/fuzz_targets/target.rs: first line should be `// SPDX-License-Identifier: GPL-3.0-or-later`, found `// SPDX-License-Identifier: MIT OR Apache-2.0`

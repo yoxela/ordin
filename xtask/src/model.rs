@@ -146,7 +146,9 @@ impl Model {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use proptest::prelude::*;
     use serde_json::json;
+    use std::fs;
 
     #[test]
     fn parses_valid_layers() {
@@ -220,6 +222,100 @@ mod tests {
                 .packages
                 .values()
                 .any(|p| p.name == "serde_json" && !p.workspace_member)
+        );
+    }
+
+    proptest! {
+        #[test]
+        fn integer_layers_parse_only_from_0_to_3(n in any::<i64>()) {
+            let parsed = Layer::parse(&json!(n));
+            if (0..=3).contains(&n) {
+                prop_assert_eq!(parsed, Ok(Layer::Level(u8::try_from(n).unwrap())));
+            } else {
+                prop_assert!(parsed.is_err());
+            }
+        }
+
+        #[test]
+        fn only_the_string_tool_parses(s in ".*") {
+            prop_assert_eq!(Layer::parse(&json!(s)).is_ok(), s == "tool");
+        }
+    }
+
+    /// One crate with a normal, a dev and a build dependency: each edge must
+    /// keep its own kind, so dev edges never count as shipped.
+    #[test]
+    fn records_the_kind_of_each_dependency_edge() {
+        let root = std::env::temp_dir().join(format!("xtask-dep-kinds-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let write = |path: &str, text: &str| {
+            let path = root.join(path);
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(path, text).unwrap();
+        };
+        write(
+            "Cargo.toml",
+            "[workspace]\nresolver = \"3\"\nmembers = [\"a\", \"n\", \"d\", \"b\"]\n",
+        );
+        let package = |name: &str| {
+            format!("[package]\nname = \"{name}\"\nversion = \"0.1.0\"\nedition = \"2024\"\n")
+        };
+        write(
+            "a/Cargo.toml",
+            &format!(
+                "{}\n[dependencies]\nn = {{ path = \"../n\" }}\n\n[dev-dependencies]\nd = {{ path = \"../d\" }}\n\n[build-dependencies]\nb = {{ path = \"../b\" }}\n",
+                package("a")
+            ),
+        );
+        write("a/build.rs", "fn main() {}\n");
+        for name in ["a", "n", "d", "b"] {
+            if name != "a" {
+                write(&format!("{name}/Cargo.toml"), &package(name));
+            }
+            write(&format!("{name}/src/lib.rs"), "");
+        }
+        let meta = cargo_metadata::MetadataCommand::new()
+            .manifest_path(root.join("Cargo.toml"))
+            .exec();
+        fs::remove_dir_all(&root).unwrap();
+        let model = Model::from_metadata(&meta.unwrap());
+        let a = model
+            .members()
+            .into_iter()
+            .find(|(_, p)| p.name == "a")
+            .unwrap()
+            .1
+            .clone();
+        let kind_of = |name: &str| {
+            a.deps
+                .iter()
+                .find(|(k, _)| model.packages.get(*k).is_some_and(|p| p.name == name))
+                .map(|(_, kinds)| *kinds)
+                .unwrap()
+        };
+        assert_eq!(
+            kind_of("n"),
+            DepKinds {
+                normal: true,
+                build: false,
+                dev: false
+            }
+        );
+        assert_eq!(
+            kind_of("d"),
+            DepKinds {
+                normal: false,
+                build: false,
+                dev: true
+            }
+        );
+        assert_eq!(
+            kind_of("b"),
+            DepKinds {
+                normal: false,
+                build: true,
+                dev: false
+            }
         );
     }
 }

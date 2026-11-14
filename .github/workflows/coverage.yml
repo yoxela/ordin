@@ -1,0 +1,96 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-FileCopyrightText: 2026 The Ordin Authors
+
+# Line coverage (ORD-003). On a pull request the build fails below the
+# threshold, unless the description has a `coverage-exception: <reason>` line.
+# On main it only reports, so a merged exception never turns main red.
+name: Coverage
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    # `edited` re-runs the gate when the description gains or loses an
+    # exception. It lives in its own workflow so editing a description doesn't
+    # re-run every other check.
+    types: [opened, synchronize, reopened, edited]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: coverage-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+  CARGO_LLVM_COV_VERSION: "0.9.1"
+  COVERAGE_MIN_LINES: "85"
+
+jobs:
+  coverage:
+    name: coverage
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install the pinned toolchain (rust-toolchain.toml)
+        run: rustup install
+      # Only the registry is cached, never target/: stale instrumented test
+      # binaries from earlier builds would be merged into the report and
+      # attribute counts to the wrong lines.
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+          key: cargo-registry-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: tool-cache
+        with:
+          path: ~/.cargo/bin/cargo-llvm-cov
+          key: cargo-llvm-cov-${{ runner.os }}-${{ env.CARGO_LLVM_COV_VERSION }}-${{ hashFiles('rust-toolchain.toml') }}
+      - name: Install cargo-llvm-cov
+        if: steps.tool-cache.outputs.cache-hit != 'true'
+        run: |
+          toolchain="$(sed -n 's/^channel = "\(.*\)"$/\1/p' rust-toolchain.toml)"
+          test -n "$toolchain"
+          cargo "+$toolchain" install cargo-llvm-cov --locked --version "$CARGO_LLVM_COV_VERSION"
+      - name: Run the tests with coverage
+        run: cargo llvm-cov --workspace --locked --no-report
+      - name: Report, and gate pull requests
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          # The description is untrusted text: it reaches the script only
+          # through this variable, never pasted into the script itself.
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          cargo llvm-cov report --summary-only
+          lines="$(cargo llvm-cov report --summary-only --json | jq -r '.data[0].totals.lines.percent')"
+          printf '### Line coverage: %.2f%% (minimum %s%%)\n' "$lines" "$COVERAGE_MIN_LINES" >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "$EVENT_NAME" != "pull_request" ]; then
+            echo "Reported only: the gate applies to pull requests." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          # A `coverage-exception: <reason>` line, with a non-empty reason.
+          reason="$(printf '%s\n' "$PR_BODY" | tr -d '\r' \
+            | sed -n 's/^[[:space:]]*coverage-exception:[[:space:]]*//p' \
+            | head -n 1 | sed 's/[[:space:]]*$//')"
+
+          if [ -n "$reason" ]; then
+            {
+              echo "**Gate lifted by the pull request description.** Reason:"
+              echo
+              printf '> %s\n' "$reason"
+            } >> "$GITHUB_STEP_SUMMARY"
+            printf 'coverage-exception: %s\n' "$reason"
+            exit 0
+          fi
+
+          cargo llvm-cov report --summary-only --fail-under-lines "$COVERAGE_MIN_LINES"
