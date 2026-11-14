@@ -1,0 +1,15 @@
+[package]
+name = "ordin-actions"
+description = "Declarative actions: users, units, state, alternatives, triggers, security policy and licenses"
+license = "GPL-3.0-or-later"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[package.metadata.ordin]
+layer = 2
+
+[lints]
+workspace = true

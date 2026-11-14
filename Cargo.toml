@@ -1,0 +1,24 @@
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.99.1"
+repository = "https://github.com/yoxela/ordin"
+# Nothing is published until it is genuinely useful (crates.io forbids
+# name-reserving placeholder crates).
+publish = false
+
+# Every crate inherits these, except ordin-store and ordin-sandbox, which
+# repeat them with unsafe_code = "deny" instead of "forbid".
+[workspace.lints.rust]
+unsafe_code = "forbid"
+missing_docs = "warn"
+
+[workspace.lints.clippy]
+# Libraries never panic on bad input. clippy.toml allows these in tests.
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"

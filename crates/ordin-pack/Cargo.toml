@@ -1,0 +1,15 @@
+[package]
+name = "ordin-pack"
+description = "Packaging rungs 0 and 1: scanning a tree, inferring requirements, classifying facets and writing a package"
+license = "GPL-3.0-or-later"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[package.metadata.ordin]
+layer = 2
+
+[lints]
+workspace = true

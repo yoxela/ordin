@@ -1,0 +1,19 @@
+[package]
+name = "ordin-rescue"
+description = "The static rescue tool that verifies the store and switches generations"
+license = "GPL-3.0-or-later"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[package.metadata.ordin]
+layer = 3
+
+[[bin]]
+name = "ordin-rescue"
+path = "src/main.rs"
+
+[lints]
+workspace = true

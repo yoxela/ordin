@@ -1,0 +1,21 @@
+[package]
+name = "ordin-sandbox"
+description = "Namespaces, Landlock and seccomp setup, shared by builds and scripts"
+license = "GPL-3.0-or-later"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[package.metadata.ordin]
+layer = 1
+
+[lints.rust]
+unsafe_code = "deny"
+missing_docs = "warn"
+
+[lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"

@@ -1,0 +1,19 @@
+[package]
+name = "ordin-helper"
+description = "The unprivileged, sandboxed helper that does Ordin's risky work"
+license = "GPL-3.0-or-later"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[package.metadata.ordin]
+layer = 3
+
+[[bin]]
+name = "ordin-helper"
+path = "src/main.rs"
+
+[lints]
+workspace = true
