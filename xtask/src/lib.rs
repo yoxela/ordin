@@ -6,12 +6,14 @@
 //! `cargo xtask check-layers` enforces the architecture's build rules
 //! (ORD-002): layers, licenses, the layer-0 I/O ban, what `ordind` may link,
 //! SPDX headers, and the lint and clippy configuration that implements them.
+//! The [`release`] module holds the release flows (ORD-004).
 
 use std::fmt;
 use std::path::Path;
 
 pub mod files;
 pub mod model;
+pub mod release;
 pub mod rules;
 
 /// Which rule a violation breaks.

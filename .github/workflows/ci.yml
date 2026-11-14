@@ -57,6 +57,11 @@ jobs:
       # headers, and the lint and clippy configuration (ORD-002). The I/O ban
       # itself is enforced by clippy in the check job.
       - run: cargo xtask check-layers
+      # The release scripts (ORD-004). shellcheck comes with the runner image.
+      - name: Check the release scripts
+        run: |
+          shellcheck --version
+          shellcheck release/in-container.sh scripts/release/build.sh
 
   check:
     name: clippy, build and test (${{ matrix.arch }})

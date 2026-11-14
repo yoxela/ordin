@@ -63,11 +63,106 @@ fn unknown_or_missing_commands_print_usage_and_exit_2() {
         &["nope"][..],
         &["check-layers", "extra"][..],
         &["check-layers", "--manifest-path"][..],
+        &["dist", "--tag", "v0.1.0"][..],
+        &["dist", "--out", "x", "--tag", "v0.1.0"][..],
+        &["pre-release", "now"][..],
+        &["release-sign", "v0.1.0"][..],
+        &[
+            "release-sign",
+            "v0.1.0",
+            "--key",
+            "k",
+            "--allowed-signers",
+            "s",
+        ][..],
     ] {
         let out = xtask(args).unwrap();
-        assert_eq!(out.status.code(), Some(2));
+        assert_eq!(out.status.code(), Some(2), "{args:?}");
+        let stderr = String::from_utf8_lossy(&out.stderr);
         assert!(
-            String::from_utf8_lossy(&out.stderr).starts_with("usage: cargo xtask check-layers")
+            stderr.starts_with("usage: cargo xtask <command>\n"),
+            "{stderr}"
         );
+        for command in ["check-layers", "dist", "pre-release", "release-sign"] {
+            assert!(stderr.contains(&format!("\n  {command}")), "{stderr}");
+        }
+    }
+}
+
+/// The workspace version, for commands that check the tag against it.
+fn version() -> Result<String, Box<dyn std::error::Error>> {
+    let text = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../Cargo.toml"))?;
+    Ok(xtask::release::version::workspace(&text)?.version)
+}
+
+#[test]
+fn dist_checks_the_tag_and_timestamp_before_building() {
+    let out = xtask(&["dist", "--tag", "v0.0.0-never", "--out", "/nonexistent/out"]).unwrap();
+    assert_eq!(out.status.code(), Some(1));
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.starts_with("dist: the tag v0.0.0-never doesn't match"),
+        "{stderr}"
+    );
+
+    let tag = format!("v{}", version().unwrap());
+    let out = Command::new(env!("CARGO_BIN_EXE_xtask"))
+        .args(["dist", "--tag", &tag, "--out", "/nonexistent/out"])
+        .env_remove("SOURCE_DATE_EPOCH")
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(1));
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.starts_with("dist: SOURCE_DATE_EPOCH isn't set"),
+        "{stderr}"
+    );
+}
+
+#[test]
+fn release_sign_reports_failures_with_exit_1() {
+    let out = xtask(&[
+        "release-sign",
+        "0.1.0",
+        "--allowed-signers",
+        "s",
+        "--key",
+        "k",
+    ])
+    .unwrap();
+    assert_eq!(out.status.code(), Some(1));
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.starts_with("release-sign: can't parse the tag"),
+        "{stderr}"
+    );
+    let tag = format!("v{}", version().unwrap());
+    let out = xtask(&[
+        "release-sign",
+        &tag,
+        "--allowed-signers",
+        "/nonexistent/signers",
+        "--key",
+        "k",
+    ])
+    .unwrap();
+    assert_eq!(out.status.code(), Some(1));
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.starts_with("release-sign: /nonexistent/signers: "),
+        "{stderr}"
+    );
+}
+
+/// Whether pre-release passes depends on the checkout it runs in, so this
+/// only checks that it runs and reports: never a usage error.
+#[test]
+fn pre_release_runs_its_checks() {
+    let out = xtask(&["pre-release"]).unwrap();
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    match out.status.code() {
+        Some(0) => assert!(String::from_utf8_lossy(&out.stdout).contains("git tag -s")),
+        Some(1) => assert!(stderr.contains("pre-release: "), "{stderr}"),
+        other => panic!("exit {other:?}: {stderr}"),
     }
 }
