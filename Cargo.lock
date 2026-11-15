@@ -466,6 +466,10 @@ version = "0.1.1"
 [[package]]
 name = "ordin-version"
 version = "0.1.1"
+dependencies = [
+ "proptest",
+ "thiserror",
+]
 
 [[package]]
 name = "ordind"
@@ -834,6 +838,7 @@ dependencies = [
  "cargo_metadata",
  "flate2",
  "insta",
+ "ordin-version",
  "proptest",
  "serde_json",
  "sha2",

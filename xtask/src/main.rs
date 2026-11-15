@@ -9,12 +9,15 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use xtask::release::{self, exec::System};
+use xtask::version_corpus;
 
 const USAGE: &str = "usage: cargo xtask <command>
   check-layers [--manifest-path <Cargo.toml>]
   dist --tag <tag> --out <dir>                 (inside the release container)
   pre-release
-  release-sign <tag> --allowed-signers <file> --key <file>";
+  release-sign <tag> --allowed-signers <file> --key <file>
+  version-corpus --census <census.json> --out <file>
+  version-corpus --check [<file>]";
 
 fn root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("..")
@@ -56,6 +59,17 @@ fn main() -> ExitCode {
             "--key",
             key,
         ] => report("release-sign", release_sign(tag, signers, key)),
+        ["version-corpus", "--census", census, "--out", out] => report(
+            "version-corpus",
+            write_corpus(Path::new(census), Path::new(out)),
+        ),
+        ["version-corpus", "--check"] => report(
+            "version-corpus",
+            check_corpus(&root().join(version_corpus::CORPUS)),
+        ),
+        ["version-corpus", "--check", file] => {
+            report("version-corpus", check_corpus(Path::new(file)))
+        }
         _ => {
             eprintln!("{USAGE}");
             ExitCode::from(2)
@@ -84,6 +98,23 @@ fn release_sign(tag: &str, signers: &str, key: &str) -> Result<(), release::Erro
         release::sign::Outcome::Published => Ok(()),
         release::sign::Outcome::Declined => Err(release::Error::check("not published")),
     }
+}
+
+fn read(path: &Path) -> Result<String, release::Error> {
+    std::fs::read_to_string(path).map_err(|e| release::Error::io(path, &e))
+}
+
+fn write_corpus(census: &Path, out: &Path) -> Result<(), release::Error> {
+    let text = version_corpus::generate(&System, &read(census)?, &mut io::stderr())?;
+    std::fs::write(out, text).map_err(|e| release::Error::io(out, &e))?;
+    eprintln!("version-corpus: wrote {}", out.display());
+    Ok(())
+}
+
+fn check_corpus(file: &Path) -> Result<(), release::Error> {
+    let count = version_corpus::check(&System, &read(file)?, &mut io::stderr())?;
+    println!("version-corpus: ok, {count} versions");
+    Ok(())
 }
 
 /// Exit codes: 0 done, 1 a check or step failed.

@@ -2,9 +2,8 @@
 # pinned in fuzz/rust-toolchain.toml. This is its own Cargo workspace, so
 # the stable workspace never builds nightly-only code.
 #
-# There are no targets yet: the first arrives with ORD-011 (version parsing).
-# Add one with `cargo fuzz add <name>` from this directory. Every parser of
-# outside input gets a target (see CLAUDE.md's definition of done).
+# Add a target with `cargo fuzz add <name>` from this directory. Every
+# parser of outside input gets one (see CLAUDE.md's definition of done).
 
 [package]
 name = "ordin-fuzz"
@@ -18,6 +17,14 @@ cargo-fuzz = true
 
 [dependencies]
 libfuzzer-sys = "0.4.13"
+ordin-version = { path = "../crates/ordin-version" }
+
+[[bin]]
+name = "version_parse"
+path = "fuzz_targets/version_parse.rs"
+test = false
+doc = false
+bench = false
 
 [workspace]
 members = ["."]

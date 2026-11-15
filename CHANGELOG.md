@@ -35,6 +35,13 @@ All notable changes to Ordin are recorded here. The format follows [Keep a Chang
   - `cargo xtask release-sign` (`make release-sign TAG=…`) verifies the tag against the maintainer's own signers file, checks the draft's files, checksums and provenance, rebuilds the tag and requires every file to match, signs each file with the SSH release key, asks, uploads the signatures, checks the draft again and publishes it.
   - `release/allowed_signers` holds the public keys: one for tags (namespace `git`) and one for release files (namespace `ordin-release`). The README says how to verify a release.
   - CI runs `shellcheck` on the release scripts.
+- ORD-011: versions and their ordering, in `ordin-version`.
+  - `Version` parses `[epoch:]upstream[-release[+uN]]` and shows it as written, hiding an epoch or update level of 0. Bad versions are refused with the reason, and a version is at most 256 bytes.
+  - One ordering for every package: Debian's algorithm, with `~` before everything and rpm's `^` after the end but before anything that continues the version. Versions compare by epoch, upstream, release, then update level, and equality follows the ordering (`1.0`, `1.00` and `1.0-0` are equal, as in dpkg). `compare_text` exposes the ordering for any version text.
+  - `normalize_semver` turns semver pre-releases into `~` (`2.0.0-rc.1` becomes `2.0.0~rc.1`) and drops build metadata. `snapshot` builds versions for commits from a date, a commit count and the hash (`1.4.2^20261112.37.g3fa9c1e`).
+  - The `~` compatible-with operator works like semver's caret: `~1.27` is at least 1.27 and below `2~`, and `~0.4` is below `0.5~`.
+  - Ordin orders all 23,260 distinct versions in Debian trixie exactly as `dpkg --compare-versions` does. `cargo xtask version-corpus` builds the corpus from the census and requires dpkg to agree on every pair. CI checks the committed corpus against dpkg again.
+  - Property tests for the ordering laws, for round trips, and against a port of dpkg's comparison. The first fuzz target, `version_parse`, makes `fuzz/` build. It found one bug before release: a release ending in `+u01` was accepted, then didn't read back.
 
 ### Changed
 

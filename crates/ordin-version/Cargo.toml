@@ -11,5 +11,11 @@ publish.workspace = true
 [package.metadata.ordin]
 layer = 0
 
+[dependencies]
+thiserror.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
+
 [lints]
 workspace = true

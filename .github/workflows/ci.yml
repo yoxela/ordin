@@ -57,6 +57,13 @@ jobs:
       # headers, and the lint and clippy configuration (ORD-002). The I/O ban
       # itself is enforced by clippy in the check job.
       - run: cargo xtask check-layers
+      # The version corpus (ORD-011) must be dpkg's own order, so that
+      # ordin-version's corpus test compares Ordin with dpkg rather than
+      # with itself. dpkg comes with the runner image.
+      - name: Check the version corpus against dpkg
+        run: |
+          dpkg --version | head -n 1
+          cargo xtask version-corpus --check
       # The release scripts (ORD-004). shellcheck comes with the runner image.
       - name: Check the release scripts
         run: |
