@@ -11,5 +11,13 @@ publish.workspace = true
 [package.metadata.ordin]
 layer = 0
 
+[dependencies]
+ordin-core = { path = "../ordin-core" }
+ordin-version = { path = "../ordin-version" }
+thiserror.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
+
 [lints]
 workspace = true

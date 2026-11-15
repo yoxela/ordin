@@ -16,6 +16,8 @@ pub enum Kind {
     Soname,
     /// The path after `file:`.
     FilePath,
+    /// A facet name.
+    Facet,
 }
 
 impl fmt::Display for Kind {
@@ -25,6 +27,7 @@ impl fmt::Display for Kind {
             Self::Capability => "a capability",
             Self::Soname => "a soname",
             Self::FilePath => "a file path",
+            Self::Facet => "a facet",
         })
     }
 }
@@ -91,6 +94,9 @@ pub enum Error {
         /// What is wrong with it.
         reason: &'static str,
     },
+    /// A facet whose qualifier, after the `:`, is empty.
+    #[error("the facet {0:?} has nothing after ':'")]
+    EmptyQualifier(String),
     /// Text with a `:` whose prefix isn't `cap:`, `so:` or `file:`.
     #[error("{0:?} isn't an atom: an atom is a package name, or starts with cap:, so: or file:")]
     UnknownPrefix(String),

@@ -13,9 +13,10 @@
 //! | [`PackageName`] | `[a-z0-9][a-z0-9+.-]*`, 2 to 128 bytes, not `and`, `or`, `not` or `if` | `libstdc++6` |
 //! | [`Capability`] | `cap:` and the package name grammar (keywords allowed) | `cap:http-server` |
 //! | [`Soname`] | `so:` and `[A-Za-z0-9._+-]+`, up to 255 bytes, not `.` or `..` | `so:libssl.so.3` |
-//! | [`FilePath`] | `file:` and an absolute, normalized path of printable ASCII without spaces or `( ) [ ] ,`, up to 4096 bytes | `file:/usr/bin/python3` |
+//! | [`FilePath`] | `file:` and an absolute, normalized path of printable ASCII without spaces, brackets, `,` or `= ! < > ~`, up to 4096 bytes | `file:/usr/bin/python3` |
 //! | [`Atom`] | any of the four above; a bare name is a package | `cap:mta` |
 //! | [`Arch`] | `x86_64`, `aarch64` or `noarch` | `aarch64` |
+//! | [`Facet`] | `[a-z][a-z0-9-]*`, optionally `:` and `[A-Za-z0-9_@.+-]+`, up to 64 bytes | `locale:pt_BR` |
 //!
 //! Names are ASCII and package names are lowercase, so no two names can
 //! look alike. The characters the dependency language uses for operators
@@ -34,5 +35,6 @@ pub use arch::Arch;
 pub use atom::Atom;
 pub use error::{Error, Kind};
 pub use name::{
-    Capability, FilePath, KEYWORDS, NAME_MAX, NAME_MIN, PATH_MAX, PackageName, SONAME_MAX, Soname,
+    Capability, FACET_MAX, Facet, FilePath, KEYWORDS, NAME_MAX, NAME_MIN, PATH_MAX, PackageName,
+    SONAME_MAX, Soname,
 };

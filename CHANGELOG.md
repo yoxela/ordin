@@ -35,6 +35,12 @@ All notable changes to Ordin are recorded here. The format follows [Keep a Chang
   - `cargo xtask release-sign` (`make release-sign TAG=…`) verifies the tag against the maintainer's own signers file, checks the draft's files, checksums and provenance, rebuilds the tag and requires every file to match, signs each file with the SSH release key, asks, uploads the signatures, checks the draft again and publishes it.
   - `release/allowed_signers` holds the public keys: one for tags (namespace `git`) and one for release files (namespace `ordin-release`). The README says how to verify a release.
   - CI runs `shellcheck` on the release scripts.
+- ORD-012: the dependency grammar, in `ordin-depexpr`.
+  - Requirements are boolean expressions over atoms: version constraints (`=`, `!=`, `<`, `<=`, `>`, `>=`, and `~` for compatible-with) on package and `cap:` atoms, facet selectors on package atoms (`nginx[doc,runtime]`), `not`, `and`, `or` and `a if b` (required only when `b` holds). Mixing `and` and `or` needs parentheses, and a group has at most one `if`, so an expression reads only one way.
+  - Errors give their byte offset. Expressions are limited to 4096 bytes (as written and in canonical form), 32 levels of nesting and 256 atoms, so no input can exhaust the stack.
+  - `Expr` shows as canonical text that parses back to the same tree, and `is_satisfied_by` evaluates it against a set of provides. A versioned requirement is met only by a provide with a version, as in Debian.
+  - `ordin-core` gains `Facet` (`runtime`, `doc`, `locale:pt_BR`), and file paths in `file:` atoms may no longer contain the operators `= ! < > ~`, so no atom can contain one.
+  - Property tests (round trips, the laws of logic for the evaluator) and a new fuzz target, `depexpr_parse`, which found one bug before release: an expression within the length limit whose canonical form wasn't.
 - ORD-010: names, atoms and architectures, in `ordin-core`.
   - `PackageName` (`[a-z0-9][a-z0-9+.-]*`, 2 to 128 bytes, never `and`, `or`, `not` or `if`), `Capability` (`cap:` with the same grammar), `Soname` (`so:`), `FilePath` (`file:`, absolute and normalized), the `Atom` enum over the four, and `Arch` (`x86_64`, `aarch64` or `noarch`). Each is built by parsing, shows exactly as parsed, and reads and writes its string form through serde, so nothing invalid gets in.
   - Names are lowercase ASCII, so no two look alike, and atoms can't contain the dependency language's operators or brackets. Every Debian trixie package name fits except `and`.
