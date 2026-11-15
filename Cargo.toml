@@ -17,6 +17,10 @@ publish = false
 proptest = "1.12.0"
 insta = "1.49.0"
 
+# Typed errors in library crates (CLAUDE.md: libraries use thiserror, only
+# binaries use anyhow).
+thiserror = "2.0.21"
+
 # Every crate inherits these, except ordin-store and ordin-sandbox, which
 # repeat them with unsafe_code = "deny" instead of "forbid".
 # `cargo xtask check-layers` keeps those two copies in step.

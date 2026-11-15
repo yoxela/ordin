@@ -6,7 +6,8 @@
 //! `cargo xtask check-layers` enforces the architecture's build rules
 //! (ORD-002): layers, licenses, the layer-0 I/O ban, what `ordind` may link,
 //! SPDX headers, and the lint and clippy configuration that implements them.
-//! The [`release`] module holds the release flows (ORD-004).
+//! The [`release`] module holds the release flows (ORD-004), and
+//! [`version_corpus`] the dpkg corpus for `ordin-version` (ORD-011).
 
 use std::fmt;
 use std::path::Path;
@@ -15,6 +16,7 @@ pub mod files;
 pub mod model;
 pub mod release;
 pub mod rules;
+pub mod version_corpus;
 
 /// Which rule a violation breaks.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
