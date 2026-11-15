@@ -378,6 +378,12 @@ version = "0.1.1"
 [[package]]
 name = "ordin-core"
 version = "0.1.1"
+dependencies = [
+ "proptest",
+ "serde",
+ "serde_json",
+ "thiserror",
+]
 
 [[package]]
 name = "ordin-db"

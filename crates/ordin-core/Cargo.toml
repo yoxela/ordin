@@ -11,5 +11,13 @@ publish.workspace = true
 [package.metadata.ordin]
 layer = 0
 
+[dependencies]
+serde.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
+serde_json.workspace = true
+
 [lints]
 workspace = true

@@ -21,6 +21,11 @@ insta = "1.49.0"
 # binaries use anyhow).
 thiserror = "2.0.21"
 
+# Serialization. Layer-0 types implement serde by hand, as their string
+# form, so nothing invalid can be deserialized.
+serde = "1.0.229"
+serde_json = "1.0.154"
+
 # Every crate inherits these, except ordin-store and ordin-sandbox, which
 # repeat them with unsafe_code = "deny" instead of "forbid".
 # `cargo xtask check-layers` keeps those two copies in step.

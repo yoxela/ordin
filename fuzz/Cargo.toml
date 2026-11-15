@@ -17,7 +17,15 @@ cargo-fuzz = true
 
 [dependencies]
 libfuzzer-sys = "0.4.13"
+ordin-core = { path = "../crates/ordin-core" }
 ordin-version = { path = "../crates/ordin-version" }
+
+[[bin]]
+name = "atom_parse"
+path = "fuzz_targets/atom_parse.rs"
+test = false
+doc = false
+bench = false
 
 [[bin]]
 name = "version_parse"

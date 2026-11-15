@@ -35,6 +35,10 @@ All notable changes to Ordin are recorded here. The format follows [Keep a Chang
   - `cargo xtask release-sign` (`make release-sign TAG=…`) verifies the tag against the maintainer's own signers file, checks the draft's files, checksums and provenance, rebuilds the tag and requires every file to match, signs each file with the SSH release key, asks, uploads the signatures, checks the draft again and publishes it.
   - `release/allowed_signers` holds the public keys: one for tags (namespace `git`) and one for release files (namespace `ordin-release`). The README says how to verify a release.
   - CI runs `shellcheck` on the release scripts.
+- ORD-010: names, atoms and architectures, in `ordin-core`.
+  - `PackageName` (`[a-z0-9][a-z0-9+.-]*`, 2 to 128 bytes, never `and`, `or`, `not` or `if`), `Capability` (`cap:` with the same grammar), `Soname` (`so:`), `FilePath` (`file:`, absolute and normalized), the `Atom` enum over the four, and `Arch` (`x86_64`, `aarch64` or `noarch`). Each is built by parsing, shows exactly as parsed, and reads and writes its string form through serde, so nothing invalid gets in.
+  - Names are lowercase ASCII, so no two look alike, and atoms can't contain the dependency language's operators or brackets. Every Debian trixie package name fits except `and`.
+  - Errors say what is wrong and where. Property tests and a new fuzz target, `atom_parse`, check that any input is refused or round-trips exactly.
 - ORD-011: versions and their ordering, in `ordin-version`.
   - `Version` parses `[epoch:]upstream[-release[+uN]]` and shows it as written, hiding an epoch or update level of 0. Bad versions are refused with the reason, and a version is at most 256 bytes.
   - One ordering for every package: Debian's algorithm, with `~` before everything and rpm's `^` after the end but before anything that continues the version. Versions compare by epoch, upstream, release, then update level, and equality follows the ordering (`1.0`, `1.00` and `1.0-0` are equal, as in dpkg). `compare_text` exposes the ordering for any version text.
