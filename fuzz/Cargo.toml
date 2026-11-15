@@ -26,13 +26,5 @@ test = false
 doc = false
 bench = false
 
-# TEMPORARY (ORD-011): proves the nightly crash path; removed before merge.
-[[bin]]
-name = "crash_on_purpose"
-path = "fuzz_targets/crash_on_purpose.rs"
-test = false
-doc = false
-bench = false
-
 [workspace]
 members = ["."]
