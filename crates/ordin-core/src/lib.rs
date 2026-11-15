@@ -12,7 +12,7 @@
 //! | --- | --- | --- |
 //! | [`PackageName`] | `[a-z0-9][a-z0-9+.-]*`, 2 to 128 bytes, not `and`, `or`, `not` or `if` | `libstdc++6` |
 //! | [`Capability`] | `cap:` and the package name grammar (keywords allowed) | `cap:http-server` |
-//! | [`Soname`] | `so:` and `[A-Za-z0-9._+-]+`, up to 255 bytes, not `.` or `..` | `so:libssl.so.3` |
+//! | [`Soname`] | `so:` and `[A-Za-z0-9._+-]+` (up to 255 bytes, not `.` or `..`), optionally `@` and a symbol version node `[A-Za-z0-9._]+` (up to 64 bytes) | `so:libc.so.6@GLIBC_2.38` |
 //! | [`FilePath`] | `file:` and an absolute, normalized path of printable ASCII without spaces, brackets, `,` or `= ! < > ~`, up to 4096 bytes | `file:/usr/bin/python3` |
 //! | [`Atom`] | any of the four above; a bare name is a package | `cap:mta` |
 //! | [`Arch`] | `x86_64`, `aarch64` or `noarch` | `aarch64` |
@@ -36,5 +36,5 @@ pub use atom::Atom;
 pub use error::{Error, Kind};
 pub use name::{
     Capability, FACET_MAX, Facet, FilePath, KEYWORDS, NAME_MAX, NAME_MIN, PATH_MAX, PackageName,
-    SONAME_MAX, Soname,
+    SONAME_MAX, Soname, VERSION_NODE_MAX,
 };

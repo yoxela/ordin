@@ -11,15 +11,16 @@ use ordin_depexpr::{Expr, Op, Provide, Requirement};
 use ordin_version::Version;
 use proptest::prelude::*;
 
-const ATOMS: [&str; 6] = [
+const ATOMS: [&str; 7] = [
     "aa",
     "bb",
     "cap:cc",
     "cap:and",
     "so:libd.so.1",
+    "so:libd.so.1@D_1.0",
     "file:/usr/bin/e",
 ];
-const FACETS: [&str; 3] = ["doc", "runtime", "locale:pt_BR"];
+const FACETS: [&str; 4] = ["doc", "runtime", "locale:pt_BR", "locale:sr@latin"];
 const VERSIONS: [&str; 4] = ["1", "1.2", "2.0~rc1", "1:0.5-1"];
 const OPS: [Op; 7] = [
     Op::Eq,

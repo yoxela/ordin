@@ -19,6 +19,8 @@ pub const NAME_MIN: usize = 2;
 pub const NAME_MAX: usize = 128;
 /// The longest soname, in bytes (the longest file name Linux allows).
 pub const SONAME_MAX: usize = 255;
+/// The longest symbol version node after `@` in a soname, in bytes.
+pub const VERSION_NODE_MAX: usize = 64;
 /// The longest file path, in bytes (Linux's `PATH_MAX`).
 pub const PATH_MAX: usize = 4096;
 /// The longest facet name, in bytes.
@@ -98,8 +100,18 @@ name_type!(
 );
 
 name_type!(
-    /// A shared library name, the text after `so:`: ASCII letters, digits,
-    /// `.`, `_`, `+` and `-`, up to 255 bytes, and not `.` or `..`.
+    /// A shared library name, the text after `so:`: the library's soname
+    /// (ASCII letters, digits, `.`, `_`, `+` and `-`, up to 255 bytes, not
+    /// `.` or `..`), optionally followed by `@` and a symbol version node
+    /// (`[A-Za-z0-9._]+`, up to 64 bytes): `libc.so.6@GLIBC_2.38`.
+    ///
+    /// A library provides one atom per version node it defines, so a
+    /// requirement on a node is met by plain atom equality, and the bare
+    /// soname never stands in for a versioned one.
+    ///
+    /// Atoms carry no architecture, since Yoxela has no multilib. `#` and
+    /// `/`, which are invalid today, are reserved for a future qualifier,
+    /// so adding one can't change the meaning of an existing atom.
     Soname,
     check_soname
 );
@@ -177,17 +189,21 @@ fn check_capability(text: &str) -> Result<(), Error> {
 
 fn check_soname(text: &str) -> Result<(), Error> {
     let what = Kind::Soname;
-    if text.is_empty() {
+    let (library, node) = match text.split_once('@') {
+        Some((library, node)) => (library, Some(node)),
+        None => (text, None),
+    };
+    if library.is_empty() {
         return Err(Error::Empty(what));
     }
-    if text.len() > SONAME_MAX {
+    if library.len() > SONAME_MAX {
         return Err(Error::TooLong {
             what,
             max: SONAME_MAX,
-            len: text.len(),
+            len: library.len(),
         });
     }
-    if let Some((at, ch)) = text
+    if let Some((at, ch)) = library
         .char_indices()
         .find(|&(_, c)| !(c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '+' | '-')))
     {
@@ -198,14 +214,54 @@ fn check_soname(text: &str) -> Result<(), Error> {
             rule: "use letters, digits, '.', '_', '+' and '-'",
         });
     }
-    if text == "." || text == ".." {
+    if library == "." || library == ".." {
         return Err(Error::BadStart {
             what,
             rule: "a name, not '.' or '..'",
             text: text.to_owned(),
         });
     }
+    let Some(node) = node else {
+        return Ok(());
+    };
+    if node.is_empty() {
+        return Err(Error::EmptyVersionNode(text.to_owned()));
+    }
+    if node.len() > VERSION_NODE_MAX {
+        return Err(Error::TooLong {
+            what: Kind::VersionNode,
+            max: VERSION_NODE_MAX,
+            len: node.len(),
+        });
+    }
+    if let Some((at, ch)) = node
+        .char_indices()
+        .find(|&(_, c)| !(c.is_ascii_alphanumeric() || matches!(c, '.' | '_')))
+    {
+        return Err(Error::BadChar {
+            what: Kind::VersionNode,
+            ch,
+            at: library.len() + 1 + at,
+            rule: "use letters, digits, '.' and '_'",
+        });
+    }
     Ok(())
+}
+
+impl Soname {
+    /// The library's soname, without any version node: `libc.so.6`.
+    #[must_use]
+    pub fn library(&self) -> &str {
+        self.0
+            .split_once('@')
+            .map_or(self.as_str(), |(library, _)| library)
+    }
+
+    /// The symbol version node after `@`, if any: `GLIBC_2.38`.
+    #[must_use]
+    pub fn version_node(&self) -> Option<&str> {
+        self.0.split_once('@').map(|(_, node)| node)
+    }
 }
 
 fn check_file_path(text: &str) -> Result<(), Error> {
@@ -455,6 +511,12 @@ mod tests {
         assert!(matches!(err::<Soname>(".."), Error::BadStart { .. }));
         assert!("...".parse::<Soname>().is_ok());
         assert!("a".repeat(255).parse::<Soname>().is_ok());
+        // The 255-byte limit applies to the library name; the node has its own.
+        assert!(
+            format!("{}@GLIBC_2.38", "a".repeat(255))
+                .parse::<Soname>()
+                .is_ok()
+        );
         assert!(matches!(
             err::<Soname>(&"a".repeat(256)),
             Error::TooLong {
@@ -463,6 +525,82 @@ mod tests {
                 ..
             }
         ));
+    }
+
+    #[test]
+    fn sonames_may_name_a_symbol_version_node() {
+        for (text, library, node) in [
+            ("libc.so.6@GLIBC_2.38", "libc.so.6", Some("GLIBC_2.38")),
+            (
+                "libstdc++.so.6@GLIBCXX_3.4.32",
+                "libstdc++.so.6",
+                Some("GLIBCXX_3.4.32"),
+            ),
+            (
+                "libstdc++.so.6@CXXABI_1.3.13",
+                "libstdc++.so.6",
+                Some("CXXABI_1.3.13"),
+            ),
+            (
+                "libssl.so.3@OPENSSL_3.0.0",
+                "libssl.so.3",
+                Some("OPENSSL_3.0.0"),
+            ),
+            ("libz.so.1@ZLIB_1.2.0", "libz.so.1", Some("ZLIB_1.2.0")),
+            (
+                "libc.so.6@GLIBC_PRIVATE",
+                "libc.so.6",
+                Some("GLIBC_PRIVATE"),
+            ),
+            ("libc.so.6", "libc.so.6", None),
+        ] {
+            let s: Soname = text.parse().unwrap();
+            assert_eq!(s.as_str(), text);
+            assert_eq!(s.to_string(), text);
+            assert_eq!(s.library(), library);
+            assert_eq!(s.version_node(), node);
+        }
+        // A node never matches the bare library: they are different atoms.
+        let bare: Soname = "libc.so.6".parse().unwrap();
+        let versioned: Soname = "libc.so.6@GLIBC_2.38".parse().unwrap();
+        assert_ne!(bare, versioned);
+    }
+
+    #[test]
+    fn bad_version_nodes_say_why() {
+        assert_eq!(
+            err::<Soname>("libc.so.6@"),
+            Error::EmptyVersionNode("libc.so.6@".into())
+        );
+        assert_eq!(err::<Soname>("@GLIBC_2.38"), Error::Empty(Kind::Soname));
+        let bad = |text: &str| match err::<Soname>(text) {
+            Error::BadChar { what, ch, at, .. } => (what, ch, at),
+            other => panic!("{text}: {other}"),
+        };
+        assert_eq!(bad("libc.so.6@GLIBC@2"), (Kind::VersionNode, '@', 15));
+        assert_eq!(bad("libc.so.6@GLIBC-2"), (Kind::VersionNode, '-', 15));
+        assert_eq!(bad("libc.so.6@GLIBC+2"), (Kind::VersionNode, '+', 15));
+        assert_eq!(bad("libc.so.6@a b"), (Kind::VersionNode, ' ', 11));
+        assert_eq!(bad("lib/c.so@GLIBC"), (Kind::Soname, '/', 3));
+        assert_eq!(bad("libc#64.so"), (Kind::Soname, '#', 4));
+        assert!(matches!(err::<Soname>(".@X"), Error::BadStart { .. }));
+        assert!(format!("x@{}", "N".repeat(64)).parse::<Soname>().is_ok());
+        assert_eq!(
+            err::<Soname>(&format!("x@{}", "N".repeat(65))),
+            Error::TooLong {
+                what: Kind::VersionNode,
+                max: 64,
+                len: 65
+            }
+        );
+        assert_eq!(
+            err::<Soname>(&format!("{}@X", "a".repeat(256))),
+            Error::TooLong {
+                what: Kind::Soname,
+                max: 255,
+                len: 256
+            }
+        );
     }
 
     #[test]
