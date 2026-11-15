@@ -1,6 +1,38 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: 2026 The Ordin Authors
 
-//! Shared types: package names, capabilities, digests, architectures and error types.
+//! Shared types: package names, capabilities, digests, architectures and
+//! error types.
 //!
-//! This crate is a stub created by ORD-001. Its stories fill it in.
+//! Every type here can only hold a valid value: it is built by parsing,
+//! and parsing what it shows gives back an equal value. Serde reads and
+//! writes each one as its string form.
+//!
+//! | Type | Form | Example |
+//! | --- | --- | --- |
+//! | [`PackageName`] | `[a-z0-9][a-z0-9+.-]*`, 2 to 128 bytes, not `and`, `or`, `not` or `if` | `libstdc++6` |
+//! | [`Capability`] | `cap:` and the package name grammar (keywords allowed) | `cap:http-server` |
+//! | [`Soname`] | `so:` and `[A-Za-z0-9._+-]+`, up to 255 bytes, not `.` or `..` | `so:libssl.so.3` |
+//! | [`FilePath`] | `file:` and an absolute, normalized path of printable ASCII without spaces or `( ) [ ] ,`, up to 4096 bytes | `file:/usr/bin/python3` |
+//! | [`Atom`] | any of the four above; a bare name is a package | `cap:mta` |
+//! | [`Arch`] | `x86_64`, `aarch64` or `noarch` | `aarch64` |
+//!
+//! Names are ASCII and package names are lowercase, so no two names can
+//! look alike. The characters the dependency language uses for operators
+//! and brackets can't appear in any atom, and its keywords can't be
+//! package names, so an expression always parses one way.
+//!
+//! Nothing here does I/O, and no input makes it panic.
+
+mod arch;
+mod atom;
+mod error;
+mod name;
+mod serde_str;
+
+pub use arch::Arch;
+pub use atom::Atom;
+pub use error::{Error, Kind};
+pub use name::{
+    Capability, FilePath, KEYWORDS, NAME_MAX, NAME_MIN, PATH_MAX, PackageName, SONAME_MAX, Soname,
+};
