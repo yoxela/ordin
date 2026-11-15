@@ -78,11 +78,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "ordin-depexpr"
+version = "0.1.1"
+dependencies = [
+ "ordin-core",
+ "ordin-version",
+ "thiserror",
+]
+
+[[package]]
 name = "ordin-fuzz"
 version = "0.0.0"
 dependencies = [
  "libfuzzer-sys",
  "ordin-core",
+ "ordin-depexpr",
  "ordin-version",
 ]
 

@@ -21,6 +21,8 @@ pub const NAME_MAX: usize = 128;
 pub const SONAME_MAX: usize = 255;
 /// The longest file path, in bytes (Linux's `PATH_MAX`).
 pub const PATH_MAX: usize = 4096;
+/// The longest facet name, in bytes.
+pub const FACET_MAX: usize = 64;
 
 /// The dependency language's keywords, which can't be package names.
 pub const KEYWORDS: [&str; 4] = ["and", "or", "not", "if"];
@@ -105,9 +107,19 @@ name_type!(
 name_type!(
     /// A file path, the text after `file:`: absolute and normalized (no
     /// `.` or `..` parts, no `//`, no trailing `/`), printable ASCII
-    /// without spaces or `( ) [ ] ,`, up to 4096 bytes.
+    /// without spaces, brackets, `,` or the dependency operators
+    /// `= ! < > ~`, up to 4096 bytes.
     FilePath,
     check_file_path
+);
+
+name_type!(
+    /// A facet: a named part of a package, such as `runtime`, `doc` or
+    /// `locale:pt_BR`. The name is `[a-z][a-z0-9-]*`, optionally followed
+    /// by `:` and a qualifier of `[A-Za-z0-9_@.+-]+` (locale names keep
+    /// their usual case), up to 64 bytes in all.
+    Facet,
+    check_facet
 );
 
 const NAME_RULE: &str = "use lowercase letters, digits, '+', '.' and '-'";
@@ -208,15 +220,15 @@ fn check_file_path(text: &str) -> Result<(), Error> {
             len: text.len(),
         });
     }
-    if let Some((at, ch)) = text
-        .char_indices()
-        .find(|&(_, c)| !c.is_ascii_graphic() || matches!(c, '(' | ')' | '[' | ']' | ','))
-    {
+    if let Some((at, ch)) = text.char_indices().find(|&(_, c)| {
+        !c.is_ascii_graphic()
+            || matches!(c, '(' | ')' | '[' | ']' | ',' | '=' | '!' | '<' | '>' | '~')
+    }) {
         return Err(Error::BadChar {
             what,
             ch,
             at,
-            rule: "use printable ASCII without spaces or '(', ')', '[', ']' and ','",
+            rule: "use printable ASCII without spaces, brackets, ',' or the operators '=', '!', '<', '>' and '~'",
         });
     }
     let bad = |reason| {
@@ -237,6 +249,61 @@ fn check_file_path(text: &str) -> Result<(), Error> {
             "." | ".." => return bad("it can't contain '.' or '..' parts"),
             _ => {}
         }
+    }
+    Ok(())
+}
+
+fn check_facet(text: &str) -> Result<(), Error> {
+    let what = Kind::Facet;
+    if text.is_empty() {
+        return Err(Error::Empty(what));
+    }
+    if text.len() > FACET_MAX {
+        return Err(Error::TooLong {
+            what,
+            max: FACET_MAX,
+            len: text.len(),
+        });
+    }
+    let (base, qualifier) = match text.split_once(':') {
+        Some((base, qualifier)) => (base, Some(qualifier)),
+        None => (text, None),
+    };
+    if !base.starts_with(|c: char| c.is_ascii_lowercase()) {
+        return Err(Error::BadStart {
+            what,
+            rule: "a lowercase letter",
+            text: text.to_owned(),
+        });
+    }
+    if let Some((at, ch)) = base
+        .char_indices()
+        .find(|&(_, c)| !(c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-'))
+    {
+        return Err(Error::BadChar {
+            what,
+            ch,
+            at,
+            rule: "the name uses lowercase letters, digits and '-'",
+        });
+    }
+    let Some(qualifier) = qualifier else {
+        return Ok(());
+    };
+    if qualifier.is_empty() {
+        return Err(Error::EmptyQualifier(text.to_owned()));
+    }
+    let offset = base.len() + 1;
+    if let Some((at, ch)) = qualifier
+        .char_indices()
+        .find(|&(_, c)| !(c.is_ascii_alphanumeric() || matches!(c, '_' | '@' | '.' | '+' | '-')))
+    {
+        return Err(Error::BadChar {
+            what,
+            ch,
+            at: offset + at,
+            rule: "the part after ':' uses letters, digits, '_', '@', '.', '+' and '-'",
+        });
     }
     Ok(())
 }
@@ -427,6 +494,11 @@ mod tests {
             ("/a,b", ','),
             ("/a\tb", '\t'),
             ("/é", 'é'),
+            ("/a=b", '='),
+            ("/a!", '!'),
+            ("/a<b", '<'),
+            ("/a>b", '>'),
+            ("/srv/~x", '~'),
         ] {
             assert!(
                 matches!(err::<FilePath>(text), Error::BadChar { ch: c, .. } if c == ch),
@@ -440,6 +512,69 @@ mod tests {
             Error::TooLong {
                 max: 4096,
                 len: 4097,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn facets_are_a_name_and_an_optional_qualifier() {
+        for facet in [
+            "runtime",
+            "doc",
+            "debug",
+            "dev",
+            "locale:pt_BR",
+            "locale:sr@latin",
+            "x1-y:a.b+c-d",
+            "a",
+        ] {
+            assert_eq!(facet.parse::<Facet>().unwrap().as_str(), facet);
+        }
+        assert_eq!(err::<Facet>(""), Error::Empty(Kind::Facet));
+        assert!(matches!(
+            err::<Facet>("Doc"),
+            Error::BadStart {
+                what: Kind::Facet,
+                ..
+            }
+        ));
+        assert!(matches!(err::<Facet>("1doc"), Error::BadStart { .. }));
+        assert!(matches!(err::<Facet>(":en"), Error::BadStart { .. }));
+        assert!(matches!(
+            err::<Facet>("doC"),
+            Error::BadChar { ch: 'C', at: 2, .. }
+        ));
+        assert!(matches!(
+            err::<Facet>("do_c"),
+            Error::BadChar { ch: '_', at: 2, .. }
+        ));
+        assert_eq!(
+            err::<Facet>("locale:"),
+            Error::EmptyQualifier("locale:".into())
+        );
+        assert!(matches!(
+            err::<Facet>("locale:pt BR"),
+            Error::BadChar { ch: ' ', at: 9, .. }
+        ));
+        assert!(matches!(
+            err::<Facet>("locale:a:b"),
+            Error::BadChar { ch: ':', at: 8, .. }
+        ));
+        assert!(matches!(
+            err::<Facet>("locale:a,b"),
+            Error::BadChar { ch: ',', .. }
+        ));
+        assert!(matches!(
+            err::<Facet>("doc]"),
+            Error::BadChar { ch: ']', .. }
+        ));
+        assert!("a".repeat(64).parse::<Facet>().is_ok());
+        assert!(matches!(
+            err::<Facet>(&"a".repeat(65)),
+            Error::TooLong {
+                max: 64,
+                len: 65,
                 ..
             }
         ));
