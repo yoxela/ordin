@@ -18,6 +18,8 @@ pub enum Kind {
     FilePath,
     /// A facet name.
     Facet,
+    /// A symbol version node, after `@` in a soname.
+    VersionNode,
 }
 
 impl fmt::Display for Kind {
@@ -28,6 +30,7 @@ impl fmt::Display for Kind {
             Self::Soname => "a soname",
             Self::FilePath => "a file path",
             Self::Facet => "a facet",
+            Self::VersionNode => "a symbol version node",
         })
     }
 }
@@ -94,6 +97,9 @@ pub enum Error {
         /// What is wrong with it.
         reason: &'static str,
     },
+    /// A soname with `@` but no version node after it.
+    #[error("the soname {0:?} has no version node after '@'")]
+    EmptyVersionNode(String),
     /// A facet whose qualifier, after the `:`, is empty.
     #[error("the facet {0:?} has nothing after ':'")]
     EmptyQualifier(String),

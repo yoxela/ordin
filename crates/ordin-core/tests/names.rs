@@ -9,7 +9,7 @@ use proptest::prelude::*;
 /// Text that is mostly valid atom material, with some characters that
 /// aren't, so both outcomes come up.
 fn atomish() -> impl Strategy<Value = String> {
-    "(cap:|so:|file:/|x:)?[a-z0-9+.\\-_/A-Z :()]{0,12}"
+    "(cap:|so:|file:/|x:)?[a-z0-9+.\\-_/A-Z :()@]{0,12}"
 }
 
 proptest! {
@@ -81,6 +81,11 @@ fn serde_reads_and_writes_the_string_form() {
     assert_eq!(escaped.as_str(), "http");
     let soname: Soname = serde_json::from_str(r#""libz.so.1""#).unwrap();
     assert_eq!(soname.as_str(), "libz.so.1");
+    let node: Atom = serde_json::from_str(r#""so:libc.so.6@GLIBC_2.38""#).unwrap();
+    assert_eq!(
+        serde_json::to_string(&node).unwrap(),
+        r#""so:libc.so.6@GLIBC_2.38""#
+    );
     let path: FilePath = serde_json::from_str(r#""/etc/shells""#).unwrap();
     assert_eq!(path.as_str(), "/etc/shells");
 }

@@ -82,6 +82,12 @@ fn spacing_is_normalized() {
             "file:/usr/bin/python3 or cap:python",
             "file:/usr/bin/python3 or cap:python",
         ),
+        // `@` in a symbol version node and in a locale facet, in one
+        // expression: atoms and facets are read in separate contexts.
+        (
+            "so:libc.so.6@GLIBC_2.38 and foo[ locale:sr@latin ]",
+            "so:libc.so.6@GLIBC_2.38 and foo[locale:sr@latin]",
+        ),
     ] {
         assert_eq!(canonical(input).unwrap(), shown, "{input:?}");
         // The canonical text is itself canonical.
@@ -279,5 +285,28 @@ fn requirements_match_atoms_versions_and_facets() {
         assert_eq!(satisfied(expr, &all).unwrap(), expected, "{expr}");
     }
     assert!(!satisfied("nginx", &[]).unwrap());
+
+    // A version node is met only by that exact node, never by the bare
+    // library, and the bare library isn't met by a node alone.
+    let glibc = [
+        provide("so:libc.so.6", None, &[]).unwrap(),
+        provide("so:libc.so.6@GLIBC_2.38", None, &[]).unwrap(),
+    ];
+    assert!(satisfied("so:libc.so.6@GLIBC_2.38", &glibc).unwrap());
+    assert!(!satisfied("so:libc.so.6@GLIBC_2.41", &glibc).unwrap());
+    assert!(satisfied("so:libc.so.6", &glibc).unwrap());
+    let only_node = [provide("so:libc.so.6@GLIBC_2.38", None, &[]).unwrap()];
+    assert!(!satisfied("so:libc.so.6", &only_node).unwrap());
+    let e: Expr = "so:libc.so.6@GLIBC_2.38 and foo[locale:sr@latin]"
+        .parse()
+        .unwrap();
+    let reqs = e.requirements();
+    assert!(
+        matches!(&reqs[0].atom, ordin_core::Atom::So(s) if s.version_node() == Some("GLIBC_2.38"))
+    );
+    assert_eq!(
+        reqs[1].facets.iter().next().map(|f| f.as_str()),
+        Some("locale:sr@latin")
+    );
     assert!(satisfied("not nginx", &[]).unwrap());
 }
