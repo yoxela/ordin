@@ -4,6 +4,8 @@
 //! `cargo xtask release-sign <tag>`: verifies a draft release that CI built,
 //! then signs, uploads and publishes it.
 //!
+//! 0. Checks that CI's draft exists with the expected files, before it
+//!    clones or creates anything.
 //! 1. Clones the repository afresh and verifies the tag's signature against
 //!    the maintainer's own copy of `allowed_signers`, never the
 //!    repository's. The repository's copy must match it byte for byte.
@@ -117,6 +119,40 @@ pub fn check_draft(json: &str, tag: &str, expected: &[String]) -> Result<(), Err
     Ok(())
 }
 
+/// The release's JSON from `gh release view --json isDraft,tagName,assets`.
+fn view_release(exec: &dyn Exec, tag: &str, slug: &str) -> Result<String, Error> {
+    Ok(exec
+        .run(&Cmd::new("gh").args([
+            "release",
+            "view",
+            tag,
+            "--repo",
+            slug,
+            "--json",
+            "isDraft,tagName,assets",
+        ]))?
+        .stdout_text())
+}
+
+/// Checks that CI's draft exists and is complete before anything is cloned
+/// or created, so a run started while the release workflow is still going
+/// stops at once and leaves nothing behind.
+fn draft_ready(exec: &dyn Exec, opts: &Options, version: &str) -> Result<(), Error> {
+    let tag = opts.tag.as_str();
+    let slug = opts.slug.as_str();
+    let json = view_release(exec, tag, slug).map_err(|e| {
+        let workflow = RELEASE_WORKFLOW
+            .rsplit('/')
+            .next()
+            .unwrap_or(RELEASE_WORKFLOW);
+        Error::check(format!(
+            "no draft release for {tag} yet. If the tag was pushed recently, the release \
+             workflow may still be running: `gh run list --workflow {workflow} --repo {slug}` ({e})"
+        ))
+    })?;
+    check_draft(&json, tag, &dist::release_files(version))
+}
+
 /// Checks that two directories hold the same regular files, byte for byte.
 ///
 /// # Errors
@@ -183,6 +219,7 @@ pub fn run(
     let trusted_text = String::from_utf8(trusted.clone())
         .map_err(|e| Error::parse("the trusted allowed_signers", e))?;
     signers::load(&trusted_text)?;
+    draft_ready(exec, opts, &version)?;
     let work = tempfile::Builder::new()
         .prefix("ordin-release-")
         .tempdir_in(&opts.work_parent)
@@ -264,19 +301,7 @@ fn steps(
 
     // 2. The draft, with CI's provenance.
     let expected = dist::release_files(version);
-    let view = || -> Result<String, Error> {
-        Ok(exec
-            .run(&Cmd::new("gh").args([
-                "release",
-                "view",
-                tag,
-                "--repo",
-                slug,
-                "--json",
-                "isDraft,tagName,assets",
-            ]))?
-            .stdout_text())
-    };
+    let view = || view_release(exec, tag, slug);
     check_draft(&view()?, tag, &expected)?;
     let draft = work.join("draft");
     let download = |dir: &Path| {

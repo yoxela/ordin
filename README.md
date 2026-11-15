@@ -17,7 +17,7 @@ Each release has one archive per target, a `SHA256SUMS` file, and an SSH signatu
 | Target | Runs on |
 | --- | --- |
 | `x86_64-unknown-linux-musl`, `aarch64-unknown-linux-musl` | Any Linux: the binaries are statically linked |
-| `x86_64-unknown-linux-gnu`, `aarch64-unknown-linux-gnu` | Linux with glibc 2.34 or newer (as of 0.1.0) |
+| `x86_64-unknown-linux-gnu`, `aarch64-unknown-linux-gnu` | Linux with glibc 2.34 or newer (as of 0.1.1) |
 
 CI builds every release in a pinned container ([`release/Dockerfile`](release/Dockerfile)) and records build provenance. The maintainer then rebuilds the tag separately, and signs and publishes the release only if every file matches CI's byte for byte.
 
