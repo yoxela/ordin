@@ -2,7 +2,7 @@
 
 All notable changes to Ordin are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased] (0.1.0)
+## [Unreleased] (0.1.1)
 
 ### Added
 
@@ -39,6 +39,8 @@ All notable changes to Ordin are recorded here. The format follows [Keep a Chang
 ### Changed
 
 - The README describes Ordin's lifecycle model directly, without comparing it to other systems.
+- `cargo xtask release-sign` checks that CI's draft exists, for the tag and with the expected files, before it clones or creates anything. Started while the release workflow is still running, it now stops at once, says so and leaves no work directory behind.
+- The first release will be 0.1.1. The `v0.1.0` tag was used once to test the release flow end to end and then deleted, so it is never reused.
 
 ### Fixed
 

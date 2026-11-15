@@ -60,6 +60,12 @@ impl Setup {
         self.fake.called("gh", &["release", "upload"])
     }
 
+    /// Whether the only call to GitHub was the one draft view.
+    fn only_viewed_the_draft(&self) -> bool {
+        let gh = self.fake.calls_to("gh");
+        gh.len() == 1 && gh[0][..2] == ["release", "view"]
+    }
+
     fn published(&self) -> bool {
         self.fake.called("gh", &["release", "edit"])
     }
@@ -197,7 +203,7 @@ fn a_tag_signed_by_an_untrusted_key_is_refused() {
     repo.tag("v0.1.0", &other).unwrap();
     let s = Setup::with_repo(repo, "v0.1.0", "0.1.0").unwrap();
     s.fails_with("has no trusted signature").unwrap();
-    assert!(!s.fake.called("gh", &[]));
+    assert!(s.only_viewed_the_draft());
 }
 
 #[test]
@@ -235,9 +241,11 @@ fn a_tag_off_main_is_refused() {
 #[test]
 fn a_tag_that_does_not_match_the_workspace_version_is_refused() {
     let s = Setup::new("v0.2.0", "0.1.0").unwrap();
+    fs::remove_dir_all(&s.fake.server).unwrap();
+    release_dir(&s.fake.server, "0.2.0").unwrap();
     s.fails_with("doesn't match the workspace version 0.1.0")
         .unwrap();
-    assert!(!s.fake.called("gh", &[]));
+    assert!(s.only_viewed_the_draft());
 }
 
 #[test]
@@ -253,12 +261,59 @@ fn signers_that_changed_in_the_repository_are_refused() {
         .unwrap();
 }
 
+impl Setup {
+    /// Runs, expecting an error containing `message` before anything was
+    /// cloned or created.
+    fn stops_early_with(&self, message: &str) -> R<()> {
+        let (result, log) = self.run("y\n");
+        let e = match result {
+            Ok(outcome) => return Err(format!("expected an error, got {outcome:?}\n{log}").into()),
+            Err(e) => e.to_string(),
+        };
+        assert!(
+            e.contains(message),
+            "expected {message:?} in: {e}\nlog:\n{log}"
+        );
+        assert!(self.fake.calls_to("git").is_empty(), "cloned despite: {e}");
+        assert_eq!(self.fake.calls.borrow().len(), 1, "more than the view ran");
+        assert_eq!(self.work_dirs()?, 0);
+        assert!(log.is_empty(), "{log}");
+        Ok(())
+    }
+}
+
 #[test]
-fn a_draft_with_unexpected_files_is_refused() {
+fn a_draft_that_does_not_exist_yet_stops_before_the_clone() {
+    let mut s = Setup::new("v0.1.0", "0.1.0").unwrap();
+    s.fake.hook =
+        Box::new(|_, cmd| (cmd.arg_strings()[..2] == ["release", "view"]).then(|| fail(cmd)));
+    s.stops_early_with(
+        "no draft release for v0.1.0 yet. If the tag was pushed recently, the release workflow \
+         may still be running: `gh run list --workflow release.yml --repo test/ordin` \
+         (`gh release view v0.1.0",
+    )
+    .unwrap();
+}
+
+#[test]
+fn a_draft_with_unexpected_files_stops_before_the_clone() {
     let s = Setup::new("v0.1.0", "0.1.0").unwrap();
     fs::write(s.fake.server.join("extra"), "x").unwrap();
-    s.fails_with("expected").unwrap();
-    assert!(!s.fake.called("gh", &["release", "download"]));
+    s.stops_early_with("expected").unwrap();
+}
+
+#[test]
+fn a_draft_for_another_tag_stops_before_the_clone() {
+    let mut s = Setup::new("v0.1.0", "0.1.0").unwrap();
+    s.fake.tag = "v0.2.0".into();
+    s.stops_early_with("the release isn't for v0.1.0").unwrap();
+}
+
+#[test]
+fn a_draft_already_published_stops_before_the_clone() {
+    let s = Setup::new("v0.1.0", "0.1.0").unwrap();
+    *s.fake.draft.borrow_mut() = false;
+    s.stops_early_with("isn't a draft").unwrap();
 }
 
 #[test]

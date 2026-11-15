@@ -349,127 +349,127 @@ checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
 
 [[package]]
 name = "ordin"
-version = "0.1.0"
+version = "0.1.1"
 
 [[package]]
 name = "ordin-actions"
-version = "0.1.0"
+version = "0.1.1"
 
 [[package]]
 name = "ordin-api"
-version = "0.1.0"
+version = "0.1.1"
 
 [[package]]
 name = "ordin-archive"
-version = "0.1.0"
+version = "0.1.1"
 
 [[package]]
 name = "ordin-build"
-version = "0.1.0"
+version = "0.1.1"
 
 [[package]]
 name = "ordin-build-bin"
-version = "0.1.0"
+version = "0.1.1"
 
 [[package]]
 name = "ordin-compose"
-version = "0.1.0"
+version = "0.1.1"
 
 [[package]]
 name = "ordin-core"
-version = "0.1.0"
+version = "0.1.1"
 
 [[package]]
 name = "ordin-db"
-version = "0.1.0"
+version = "0.1.1"
 
 [[package]]
 name = "ordin-depexpr"
-version = "0.1.0"
+version = "0.1.1"
 
 [[package]]
 name = "ordin-fetch"
-version = "0.1.0"
+version = "0.1.1"
 
 [[package]]
 name = "ordin-helper"
-version = "0.1.0"
+version = "0.1.1"
 
 [[package]]
 name = "ordin-hostfile"
-version = "0.1.0"
+version = "0.1.1"
 
 [[package]]
 name = "ordin-import"
-version = "0.1.0"
+version = "0.1.1"
 
 [[package]]
 name = "ordin-manifest"
-version = "0.1.0"
+version = "0.1.1"
 
 [[package]]
 name = "ordin-pack"
-version = "0.1.0"
+version = "0.1.1"
 
 [[package]]
 name = "ordin-plan"
-version = "0.1.0"
+version = "0.1.1"
 
 [[package]]
 name = "ordin-recipe"
-version = "0.1.0"
+version = "0.1.1"
 
 [[package]]
 name = "ordin-repo"
-version = "0.1.0"
+version = "0.1.1"
 
 [[package]]
 name = "ordin-repo-bin"
-version = "0.1.0"
+version = "0.1.1"
 
 [[package]]
 name = "ordin-rescue"
-version = "0.1.0"
+version = "0.1.1"
 
 [[package]]
 name = "ordin-sandbox"
-version = "0.1.0"
+version = "0.1.1"
 
 [[package]]
 name = "ordin-settings"
-version = "0.1.0"
+version = "0.1.1"
 
 [[package]]
 name = "ordin-sign"
-version = "0.1.0"
+version = "0.1.1"
 
 [[package]]
 name = "ordin-solve"
-version = "0.1.0"
+version = "0.1.1"
 
 [[package]]
 name = "ordin-state"
-version = "0.1.0"
+version = "0.1.1"
 
 [[package]]
 name = "ordin-store"
-version = "0.1.0"
+version = "0.1.1"
 
 [[package]]
 name = "ordin-tree"
-version = "0.1.0"
+version = "0.1.1"
 
 [[package]]
 name = "ordin-tuf"
-version = "0.1.0"
+version = "0.1.1"
 
 [[package]]
 name = "ordin-version"
-version = "0.1.0"
+version = "0.1.1"
 
 [[package]]
 name = "ordind"
-version = "0.1.0"
+version = "0.1.1"
 
 [[package]]
 name = "proc-macro-crate"
@@ -829,7 +829,7 @@ dependencies = [
 
 [[package]]
 name = "xtask"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "cargo_metadata",
  "flate2",
