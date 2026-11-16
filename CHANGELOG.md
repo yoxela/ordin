@@ -65,6 +65,7 @@ All notable changes to Ordin are recorded here. The format follows [Keep a Chang
 - The README describes Ordin's lifecycle model directly, without comparing it to other systems.
 - `cargo xtask release-sign` checks that CI's draft exists, for the tag and with the expected files, before it clones or creates anything. Started while the release workflow is still running, it now stops at once, says so and leaves no work directory behind.
 - The first release will be 0.1.1. The `v0.1.0` tag was used once to test the release flow end to end and then deleted, so it is never reused.
+- The `cargo deny` license allow list drops BSD-2-Clause, BSD-3-Clause and ISC, which no dependency uses. Adding one back is a deliberate decision when a dependency needs it.
 
 ### Fixed
 
