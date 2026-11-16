@@ -1,0 +1,509 @@
+{
+  "ordin": 1,
+  "name": "nginx",
+  "version": {
+    "epoch": 1,
+    "upstream": "1.27.3",
+    "release": "2"
+  },
+  "kind": "base",
+  "arch": "x86_64",
+  "summary": "HTTP and reverse proxy server",
+  "description": "nginx is an HTTP server.\nIt is also a reverse proxy.",
+  "homepage": "https://nginx.org/",
+  "license": {
+    "spdx": "BSD-2-Clause OR MIT",
+    "presentation": "display",
+    "texts": {
+      "BSD-2-Clause": "blake3:1111111111111111111111111111111111111111111111111111111111111111",
+      "MIT": "blake3:2222222222222222222222222222222222222222222222222222222222222222"
+    }
+  },
+  "source": {
+    "repo": "https://github.com/nginx/nginx",
+    "rev": "release-1.27.3",
+    "recipe": "blake3:3333333333333333333333333333333333333333333333333333333333333333"
+  },
+  "provenance": {
+    "slsa": "sha256:4444444444444444444444444444444444444444444444444444444444444444",
+    "sbom": "blake3:5555555555555555555555555555555555555555555555555555555555555555"
+  },
+  "facets": {
+    "debug": {
+      "tree": "blake3:6666666666666666666666666666666666666666666666666666666666666666",
+      "size": 9000,
+      "default": false
+    },
+    "doc": {
+      "tree": "blake3:7777777777777777777777777777777777777777777777777777777777777777",
+      "size": 71000,
+      "default": false
+    },
+    "locale:pt_BR": {
+      "tree": "blake3:8888888888888888888888888888888888888888888888888888888888888888",
+      "size": 100
+    },
+    "runtime": {
+      "tree": "blake3:9999999999999999999999999999999999999999999999999999999999999999",
+      "size": 1843200,
+      "digest-v2": "future"
+    }
+  },
+  "provides": [
+    "cap:http-server",
+    "cap:reverse-proxy = 1.27",
+    "so:libngx.so.1",
+    "so:libngx.so.1@NGX_1.0"
+  ],
+  "requires": [
+    "cap:zlib or zlib-ng-compat",
+    "so:libc.so.6@GLIBC_2.38",
+    "so:libssl.so.3"
+  ],
+  "conflicts": [
+    "nginx-legacy < 1.20"
+  ],
+  "recommends": [
+    "logrotate"
+  ],
+  "supplements": [
+    "geoip-database if nginx-geoip"
+  ],
+  "requires-at": {
+    "apply": [
+      "systemd"
+    ],
+    "boot": [
+      "cap:network"
+    ]
+  },
+  "obsoletes": [
+    "nginx-core < 1.27",
+    "nginx-light"
+  ],
+  "replaces": [
+    "nginx-common < 1.27"
+  ],
+  "declares": {
+    "users": [
+      {
+        "name": "nginx",
+        "home": "/var/lib/nginx",
+        "shell": "/usr/sbin/nologin",
+        "groups": [
+          "adm",
+          "www-data"
+        ],
+        "comment": "nginx web server",
+        "uid": 33
+      },
+      {
+        "name": "www-data",
+        "home": "/var/www"
+      }
+    ],
+    "groups": [
+      {
+        "name": "nginx"
+      },
+      {
+        "name": "webadmins",
+        "system": false
+      }
+    ],
+    "units": [
+      {
+        "name": "nginx-reload.timer",
+        "preset": "disable"
+      },
+      {
+        "name": "nginx.service",
+        "preset": "enable",
+        "if": "setting.start-on-boot"
+      },
+      {
+        "name": "nginx@.service",
+        "preset": "disable",
+        "if": "setting.mpm = worker"
+      }
+    ],
+    "config": [
+      {
+        "default": "/usr/share/ordin/defaults/nginx/nginx.conf",
+        "target": "/etc/nginx/nginx.conf",
+        "merge": "three-way"
+      },
+      {
+        "default": "/usr/share/ordin/defaults/nginx/sites",
+        "target": "/etc/nginx/sites-enabled"
+      }
+    ],
+    "alternatives": [
+      {
+        "name": "httpd",
+        "link": "/usr/sbin/httpd",
+        "target": "/usr/sbin/nginx",
+        "priority": 50,
+        "followers": [
+          {
+            "link": "/usr/share/man/man8/httpd.8.gz",
+            "target": "/usr/share/man/man8/nginx.8.gz"
+          },
+          {
+            "link": "/usr/share/man/man8/httpd.8.gz.1",
+            "target": "/usr/share/man/man8/nginx.8.gz"
+          }
+        ]
+      },
+      {
+        "name": "www-browser",
+        "link": "/usr/bin/www-browser",
+        "target": "/usr/bin/nginx-browse",
+        "priority": -10
+      }
+    ],
+    "triggers": [
+      {
+        "paths": [
+          "/usr/lib/nginx/modules"
+        ],
+        "action": "systemd-daemon-reload"
+      }
+    ],
+    "setuid": [
+      "/usr/lib/nginx/helper"
+    ],
+    "boot": {
+      "kernel": "/usr/lib/modules/6.12.116/vmlinuz",
+      "uki": true,
+      "initrd-extensions": [
+        "/usr/lib/ordin/initrd/nginx.ext"
+      ]
+    }
+  },
+  "state": {
+    "version": 4,
+    "migration": "reversible",
+    "paths": [
+      {
+        "path": "/var/cache/nginx",
+        "class": "cache",
+        "owner": "nginx",
+        "group": "nginx",
+        "flush": "on-upgrade",
+        "recurse": true
+      },
+      {
+        "path": "/var/lib/nginx",
+        "class": "data",
+        "owner": "nginx",
+        "group": "nginx",
+        "mode": "0750",
+        "on-remove": "archive"
+      },
+      {
+        "path": "/var/log/nginx",
+        "class": "log",
+        "owner": "nginx",
+        "group": "adm",
+        "mode": "0750"
+      }
+    ],
+    "files": [
+      {
+        "path": "/var/log/nginx/access.log",
+        "owner": "nginx"
+      },
+      {
+        "path": "/var/log/nginx/error.log",
+        "owner": "nginx",
+        "mode": "0640"
+      }
+    ],
+    "seeds": [
+      {
+        "path": "/var/lib/nginx/default.db",
+        "from": "/usr/share/nginx/default.db"
+      },
+      {
+        "path": "/var/lib/nginx/z.db",
+        "from": "/usr/share/nginx/z.db"
+      }
+    ],
+    "obsolete": [
+      "/var/lib/nginx/old-index"
+    ],
+    "migrations": [
+      {
+        "from": 1,
+        "to": 2,
+        "run": "/usr/lib/nginx/migrate-1-2",
+        "reversibility": "irreversible"
+      },
+      {
+        "from": 2,
+        "to": 3,
+        "ops": [
+          {
+            "rename": "/var/lib/nginx/db",
+            "to": "/var/lib/nginx/data"
+          },
+          {
+            "move": "/var/lib/nginx/a",
+            "to": "/var/lib/nginx/b"
+          },
+          {
+            "link": "/var/lib/nginx/db",
+            "to": "data"
+          },
+          {
+            "remove": "/var/lib/nginx/lock.old"
+          },
+          {
+            "chown": "/var/lib/nginx/data",
+            "owner": "nginx",
+            "group": "nginx"
+          }
+        ]
+      },
+      {
+        "from": 3,
+        "to": 4,
+        "run": "/usr/lib/nginx/migrate-3-4",
+        "reversibility": "reversible",
+        "reverse": "/usr/lib/nginx/migrate-4-3"
+      }
+    ]
+  },
+  "settings": [
+    {
+      "name": "cluster-name",
+      "type": "string",
+      "required": true,
+      "pattern": "^[a-z0-9-]+$"
+    },
+    {
+      "name": "listen-port",
+      "type": "port",
+      "default": 80,
+      "description": "Port the default site listens on"
+    },
+    {
+      "name": "mailname",
+      "type": "string",
+      "default": "{host.fqdn}",
+      "aliases": {
+        "debconf": "nginx/mailname"
+      }
+    },
+    {
+      "name": "modules",
+      "type": "multichoice",
+      "choices": [
+        "geoip",
+        "image-filter",
+        "xslt"
+      ],
+      "default": [
+        "geoip",
+        "xslt"
+      ]
+    },
+    {
+      "name": "mpm",
+      "type": "choice",
+      "choices": [
+        "event",
+        "prefork",
+        "worker"
+      ],
+      "default": "event"
+    },
+    {
+      "name": "server-names",
+      "type": "list",
+      "default": [
+        "localhost",
+        "example.org"
+      ]
+    },
+    {
+      "name": "start-on-boot",
+      "type": "bool",
+      "default": true
+    },
+    {
+      "name": "web-root",
+      "type": "path",
+      "default": "/srv/www"
+    },
+    {
+      "name": "workers",
+      "type": "int",
+      "min": 1,
+      "max": 64,
+      "default": 4
+    }
+  ],
+  "hooks": {
+    "check": [
+      {
+        "exec": [
+          "/usr/lib/nginx/check-hw"
+        ],
+        "timeout": 30
+      }
+    ],
+    "health": [
+      {
+        "exec": [
+          "/usr/sbin/nginx",
+          "-t"
+        ],
+        "writes": [
+          "/run/nginx"
+        ],
+        "network": true,
+        "execs": [
+          "/usr/bin/curl"
+        ],
+        "legacy": true
+      }
+    ]
+  },
+  "tests": [
+    {
+      "name": "config",
+      "exec": [
+        "/usr/sbin/nginx",
+        "-t"
+      ]
+    },
+    {
+      "name": "listen",
+      "exec": [
+        "/usr/lib/nginx/test-listen"
+      ],
+      "timeout": 30
+    }
+  ],
+  "security": {
+    "selinux": {
+      "modules": [
+        "/usr/share/selinux/nginx.cil"
+      ],
+      "booleans": {
+        "httpd_can_network_connect": true
+      },
+      "ports": [
+        {
+          "type": "http_port_t",
+          "proto": "tcp",
+          "port": 8443
+        }
+      ],
+      "fcontexts": [
+        {
+          "pattern": "/srv/www(/.*)?",
+          "type": "httpd_sys_content_t"
+        },
+        {
+          "pattern": "/var/run/nginx.sock",
+          "type": "httpd_var_run_t",
+          "file-type": "socket"
+        }
+      ]
+    },
+    "apparmor": {
+      "profiles": [
+        "/etc/apparmor.d/usr.sbin.nginx"
+      ],
+      "tunables": {
+        "nginx_root": "/srv/www"
+      }
+    }
+  },
+  "delegated": {
+    "authority": {
+      "kind": "self",
+      "exec": "/opt/ordin/delegated/nginx/bin/updater"
+    },
+    "paths": [
+      "bin/",
+      "lib/"
+    ],
+    "initial": "facet:runtime",
+    "identify": [
+      {
+        "method": "signature",
+        "sigstore-identity": "release@vendor.example",
+        "issuer": "https://token.actions.githubusercontent.com"
+      },
+      {
+        "method": "release-index",
+        "url": "https://vendor.example/releases.json",
+        "signed-by": "release@vendor.example"
+      },
+      {
+        "method": "elf-note",
+        "file": "bin/nginx",
+        "note": ".note.package",
+        "field": "version"
+      },
+      {
+        "method": "go-buildinfo",
+        "file": "bin/x"
+      },
+      {
+        "method": "cargo-auditable",
+        "file": "bin/y"
+      },
+      {
+        "method": "string",
+        "file": "bin/z",
+        "pattern": "v([0-9.]+)"
+      },
+      {
+        "method": "exec",
+        "command": [
+          "/opt/x/bin/nginx",
+          "-v"
+        ],
+        "match": "nginx/([0-9.]+)"
+      }
+    ],
+    "require": "indexed",
+    "on-insufficient": "quarantine",
+    "payload-on-upgrade": "replace"
+  },
+  "switch": {
+    "live-apply": true,
+    "boot-critical": true
+  },
+  "support": {
+    "active-until": "2027-06-30",
+    "security-until": "2028-06-30",
+    "successor": "nginx-1.29"
+  },
+  "abi": {
+    "libngx.so.1": "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "fixes": [
+    "CVE-2026-1234",
+    "fix-1234"
+  ],
+  "notices": [
+    {
+      "id": "config-moved",
+      "text": "The default site moved to sites-enabled."
+    },
+    {
+      "id": "restart-needed",
+      "text": "Restart after changing modules."
+    }
+  ],
+  "ignorable": [
+    "declares.users.uid",
+    "facets.*.digest-v2"
+  ]
+}

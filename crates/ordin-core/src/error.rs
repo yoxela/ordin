@@ -97,6 +97,15 @@ pub enum Error {
         /// What is wrong with it.
         reason: &'static str,
     },
+    /// A digest that isn't `blake3:` or `sha256:` and 64 lowercase hex
+    /// digits.
+    #[error("{text:?} isn't a digest: {reason}")]
+    BadDigest {
+        /// The text, cut to 80 characters.
+        text: String,
+        /// What is wrong with it.
+        reason: &'static str,
+    },
     /// A soname with `@` but no version node after it.
     #[error("the soname {0:?} has no version node after '@'")]
     EmptyVersionNode(String),
@@ -117,6 +126,14 @@ mod tests {
 
     #[test]
     fn messages_say_what_is_wrong() {
+        assert_eq!(
+            Error::BadDigest {
+                text: "md5:x".into(),
+                reason: "it must start with 'blake3:' or 'sha256:'"
+            }
+            .to_string(),
+            "\"md5:x\" isn't a digest: it must start with 'blake3:' or 'sha256:'"
+        );
         assert_eq!(
             Error::Empty(Kind::Soname).to_string(),
             "a soname can't be empty"

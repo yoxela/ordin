@@ -1,0 +1,23 @@
+{
+  "ordin": 1,
+  "name": "hello",
+  "version": {
+    "upstream": "2.12",
+    "release": "1"
+  },
+  "kind": "base",
+  "arch": "x86_64",
+  "summary": "Prints a friendly greeting",
+  "license": {
+    "spdx": "GPL-3.0-or-later",
+    "texts": {
+      "GPL-3.0-or-later": "blake3:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    }
+  },
+  "facets": {
+    "runtime": {
+      "tree": "blake3:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "size": 4096
+    }
+  }
+}
