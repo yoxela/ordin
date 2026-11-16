@@ -126,19 +126,17 @@ fn check_unit(text: &str) -> Result<(), String> {
         if let Some(c) = part.chars().find(|&c| !allowed(c)) {
             return Err(format!("a unit name can't contain {c:?}: {text:?}"));
         }
-        // A backslash only starts an \xNN escape.
-        let mut rest = part;
-        while let Some(i) = rest.find('\\') {
-            let escape = rest.get(i..i + 4).unwrap_or_default();
-            let ok = escape.len() == 4
-                && escape.starts_with("\\x")
-                && escape[2..].bytes().all(|b| b.is_ascii_hexdigit());
-            if !ok {
-                return Err(format!(
-                    "a '\\' in a unit name starts an \\xNN escape: {text:?}"
-                ));
-            }
-            rest = &rest[i + 4..];
+        // A backslash only starts an \xNN escape: every piece after one
+        // starts with 'x' and two hex digits. Splitting, not index
+        // arithmetic, so the check always moves forward.
+        let escapes_ok = part.split('\\').skip(1).all(|after| {
+            matches!(after.as_bytes(), [b'x', high, low, ..]
+                if high.is_ascii_hexdigit() && low.is_ascii_hexdigit())
+        });
+        if !escapes_ok {
+            return Err(format!(
+                "a '\\' in a unit name starts an \\xNN escape: {text:?}"
+            ));
         }
     }
     Ok(())
@@ -347,6 +345,9 @@ mod tests {
             "getty@.service",
             "getty@tty1.service",
             "dev-disk-by\\x2dlabel.mount",
+            "a\\x2d\\x2Db.mount",
+            "\\x2d.mount",
+            "getty@a\\x2d.service",
             "foo.socket",
             "a:b_c.d-e.timer",
             "x.slice",
@@ -362,6 +363,11 @@ mod tests {
         assert!(err("a\\x2.service").contains("\\xNN"));
         assert!(err("a\\y20.service").contains("\\xNN"));
         assert!(err("a\\.service").contains("\\xNN"));
+        assert!(err("a\\xg0.service").contains("\\xNN"));
+        assert!(err("a\\x0g.service").contains("\\xNN"));
+        assert!(err("a\\x2d\\.service").contains("\\xNN"));
+        assert!(err("a\\\\x2d.service").contains("\\xNN"));
+        assert!(err("getty@a\\x2.service").contains("\\xNN"));
         assert!(err(&format!("{}.service", "a".repeat(250))).contains("255"));
     }
 
