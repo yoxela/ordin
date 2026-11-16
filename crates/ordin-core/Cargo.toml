@@ -12,6 +12,7 @@ publish.workspace = true
 layer = 0
 
 [dependencies]
+blake3.workspace = true
 serde.workspace = true
 thiserror.workspace = true
 

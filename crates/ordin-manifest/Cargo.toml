@@ -11,5 +11,17 @@ publish.workspace = true
 [package.metadata.ordin]
 layer = 0
 
+[dependencies]
+ordin-core = { path = "../ordin-core" }
+ordin-depexpr = { path = "../ordin-depexpr" }
+ordin-version = { path = "../ordin-version" }
+regex-syntax.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
+
 [lints]
 workspace = true

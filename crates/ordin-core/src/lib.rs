@@ -16,6 +16,7 @@
 //! | [`FilePath`] | `file:` and an absolute, normalized path of printable ASCII without spaces, brackets, `,` or `= ! < > ~`, up to 4096 bytes | `file:/usr/bin/python3` |
 //! | [`Atom`] | any of the four above; a bare name is a package | `cap:mta` |
 //! | [`Arch`] | `x86_64`, `aarch64` or `noarch` | `aarch64` |
+//! | [`Digest`] | `blake3:` or `sha256:` and 64 lowercase hex digits | `blake3:af13…3262` |
 //! | [`Facet`] | `[a-z][a-z0-9-]*`, optionally `:` and `[A-Za-z0-9_@.+-]+`, up to 64 bytes | `locale:pt_BR` |
 //!
 //! Names are ASCII and package names are lowercase, so no two names can
@@ -27,12 +28,14 @@
 
 mod arch;
 mod atom;
+mod digest;
 mod error;
 mod name;
 mod serde_str;
 
 pub use arch::Arch;
 pub use atom::Atom;
+pub use digest::{Algorithm, Digest};
 pub use error::{Error, Kind};
 pub use name::{
     Capability, FACET_MAX, Facet, FilePath, KEYWORDS, NAME_MAX, NAME_MIN, PATH_MAX, PackageName,

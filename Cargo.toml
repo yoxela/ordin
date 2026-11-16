@@ -26,6 +26,12 @@ thiserror = "2.0.21"
 serde = "1.0.229"
 serde_json = "1.0.154"
 
+# Hashing (the architecture's Technology choices): BLAKE3 is every Ordin
+# object's identity. Wrapped by ordin-core's Digest.
+blake3 = "1.8.7"
+# Checks setting patterns without compiling or running them (ORD-013).
+regex-syntax = "0.8.11"
+
 # Every crate inherits these, except ordin-store and ordin-sandbox, which
 # repeat them with unsafe_code = "deny" instead of "forbid".
 # `cargo xtask check-layers` keeps those two copies in step.
