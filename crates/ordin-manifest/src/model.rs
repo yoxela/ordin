@@ -11,7 +11,8 @@ use ordin_depexpr::{Expr, Requirement};
 use ordin_version::Version;
 
 use crate::json::Value;
-use crate::text::{Account, Date, Id, Mode, UnitName, Url};
+use crate::text::{Date, Id, UnitName, Url};
+use ordin_core::{Account, Mode};
 
 /// Defines an enum written as fixed strings, with its list of values.
 macro_rules! str_enum {

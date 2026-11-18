@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: 2026 The Ordin Authors
 
-//! The manifest's own small grammars: accounts, unit names, IDs, modes,
-//! dates, URLs and free text. Each check returns why a value is refused.
+//! The manifest's own small grammars: unit names, IDs, dates, URLs and
+//! free text. Account names and modes live in `ordin-core`. Each check returns why a value is refused.
 
 use std::fmt;
 use std::str::FromStr;
@@ -40,13 +40,6 @@ macro_rules! text_type {
 }
 
 text_type!(
-    /// A user or group name: `[A-Za-z_][A-Za-z0-9_-]*`, 1 to 32 bytes, as
-    /// systemd allows (`_apt`, `systemd-network`, `Debian-exim`).
-    Account,
-    check_account
-);
-
-text_type!(
     /// A systemd unit name: `getty@.service`, `dev-disk-by\x2dlabel.mount`.
     UnitName,
     check_unit
@@ -64,29 +57,6 @@ text_type!(
     Url,
     check_url
 );
-
-fn check_account(text: &str) -> Result<(), String> {
-    if text.is_empty() || text.len() > 32 {
-        return Err(format!(
-            "an account name is 1 to 32 bytes; {text:?} is {}",
-            text.len()
-        ));
-    }
-    if !text.starts_with(|c: char| c.is_ascii_alphabetic() || c == '_') {
-        return Err(format!(
-            "an account name starts with a letter or '_': {text:?}"
-        ));
-    }
-    match text
-        .char_indices()
-        .find(|&(_, c)| !(c.is_ascii_alphanumeric() || c == '_' || c == '-'))
-    {
-        Some((at, c)) => Err(format!(
-            "an account name uses letters, digits, '_' and '-'; {c:?} at byte {at} isn't allowed"
-        )),
-        None => Ok(()),
-    }
-}
 
 /// The unit types a package may declare.
 const UNIT_TYPES: [&str; 9] = [
@@ -214,45 +184,6 @@ pub(crate) fn free_text(text: &str, max: usize, lines: bool) -> Result<(), Strin
     }
 }
 
-/// A file mode: four octal digits, `"0750"`.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Mode(u16);
-
-impl Mode {
-    /// A mode from its value, at most `0o7777`.
-    #[must_use]
-    pub fn new(value: u16) -> Option<Self> {
-        (value <= 0o7777).then_some(Self(value))
-    }
-
-    /// The mode's value.
-    #[must_use]
-    pub fn value(self) -> u16 {
-        self.0
-    }
-}
-
-impl FromStr for Mode {
-    type Err = String;
-
-    fn from_str(text: &str) -> Result<Self, String> {
-        if text.len() != 4 || !text.bytes().all(|b| (b'0'..=b'7').contains(&b)) {
-            return Err(format!(
-                "a mode is four octal digits, such as \"0750\": {text:?}"
-            ));
-        }
-        u16::from_str_radix(text, 8)
-            .map(Self)
-            .map_err(|e| e.to_string())
-    }
-}
-
-impl fmt::Display for Mode {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{:04o}", self.0)
-    }
-}
-
 /// A calendar date, `YYYY-MM-DD`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Date {
@@ -306,37 +237,6 @@ impl fmt::Display for Date {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn accounts_follow_systemd() {
-        for ok in [
-            "_apt",
-            "_chrony",
-            "systemd-network",
-            "Debian-exim",
-            "a",
-            &"a".repeat(32),
-        ] {
-            assert_eq!(ok.parse::<Account>().unwrap().as_str(), ok);
-        }
-        for bad in [
-            "",
-            "1user",
-            "-x",
-            "us.er",
-            "us+er",
-            "us er",
-            &"a".repeat(33),
-        ] {
-            assert!(bad.parse::<Account>().is_err(), "{bad:?}");
-        }
-        assert!(
-            "us.er"
-                .parse::<Account>()
-                .unwrap_err()
-                .contains("'.' at byte 2")
-        );
-    }
 
     #[test]
     fn units_follow_systemd() {
@@ -449,15 +349,7 @@ mod tests {
     }
 
     #[test]
-    fn modes_and_dates() {
-        assert_eq!("0750".parse::<Mode>().unwrap().value(), 0o750);
-        assert_eq!("0750".parse::<Mode>().unwrap().to_string(), "0750");
-        assert_eq!("7777".parse::<Mode>().unwrap().value(), 0o7777);
-        for bad in ["750", "00750", "0758", "075a", ""] {
-            assert!(bad.parse::<Mode>().is_err(), "{bad:?}");
-        }
-        assert_eq!(Mode::new(0o644).unwrap().to_string(), "0644");
-        assert!(Mode::new(0o10000).is_none());
+    fn dates_print_as_read() {
         assert_eq!(
             "2027-06-30".parse::<Date>().unwrap().to_string(),
             "2027-06-30"

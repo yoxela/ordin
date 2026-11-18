@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: 2026 The Ordin Authors
 
-//! Shared types: package names, capabilities, digests, architectures and
-//! error types.
+//! Shared types: package names, capabilities, digests, architectures,
+//! account names and file modes, error types, and the strict canonical
+//! JSON (RFC 8785) that manifests and trees are encoded in.
 //!
 //! Every type here can only hold a valid value: it is built by parsing,
 //! and parsing what it shows gives back an equal value. Serde reads and
@@ -18,6 +19,8 @@
 //! | [`Arch`] | `x86_64`, `aarch64` or `noarch` | `aarch64` |
 //! | [`Digest`] | `blake3:` or `sha256:` and 64 lowercase hex digits | `blake3:af13…3262` |
 //! | [`Facet`] | `[a-z][a-z0-9-]*`, optionally `:` and `[A-Za-z0-9_@.+-]+`, up to 64 bytes | `locale:pt_BR` |
+//! | [`Account`] | `[A-Za-z_][A-Za-z0-9_-]*`, 1 to 32 bytes | `systemd-network` |
+//! | [`Mode`] | four octal digits, at most `7777` | `0755` |
 //!
 //! Names are ASCII and package names are lowercase, so no two names can
 //! look alike. The characters the dependency language uses for operators
@@ -26,13 +29,16 @@
 //!
 //! Nothing here does I/O, and no input makes it panic.
 
+mod account;
 mod arch;
 mod atom;
 mod digest;
 mod error;
+pub mod json;
 mod name;
 mod serde_str;
 
+pub use account::{ACCOUNT_MAX, Account, Mode};
 pub use arch::Arch;
 pub use atom::Atom;
 pub use digest::{Algorithm, Digest};

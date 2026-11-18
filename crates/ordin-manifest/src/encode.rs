@@ -351,12 +351,12 @@ fn declares(d: &Declares) -> Option<Value> {
         .build()
 }
 
-fn owner(o: Obj, owner: &crate::text::Account, group: &crate::text::Account) -> Obj {
-    let root = |a: &crate::text::Account| (a.as_str() != "root").then(|| s(a));
+fn owner(o: Obj, owner: &ordin_core::Account, group: &ordin_core::Account) -> Obj {
+    let root = |a: &ordin_core::Account| (a.as_str() != "root").then(|| s(a));
     o.put("owner", root(owner)).put("group", root(group))
 }
 
-fn mode(m: crate::text::Mode, default: u16) -> Option<Value> {
+fn mode(m: ordin_core::Mode, default: u16) -> Option<Value> {
     (m.value() != default).then(|| s(m))
 }
 
