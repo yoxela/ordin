@@ -26,7 +26,7 @@
 mod decode;
 mod encode;
 mod error;
-pub mod json;
+pub use ordin_core::json;
 mod known;
 mod model;
 mod spdx;
@@ -36,7 +36,8 @@ use ordin_core::Digest;
 
 pub use error::{Error, ErrorKind, Path, Segment};
 pub use model::*;
-pub use text::{Account, Date, Id, Mode, UnitName, Url};
+pub use ordin_core::{Account, Mode};
+pub use text::{Date, Id, UnitName, Url};
 
 /// The largest manifest, in bytes.
 pub const MAX_SIZE: usize = 1 << 20;

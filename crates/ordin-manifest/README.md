@@ -8,4 +8,6 @@ The package manifest: its schema, validation and canonical JSON (RFC 8785). Laye
 - `Manifest::from_json` reads any spacing and key order, for tools and tests, and checks every other rule. It is never for signed manifests.
 - `Manifest::to_canonical_bytes` and `Manifest::digest` encode a manifest and check the result against every rule again.
 
-Reading refuses duplicate keys, non-integer numbers, unknown fields (unless the manifest's own `ignorable` list names them), unknown values, fields set to their default, unsorted sets and text that isn't in its canonical form. Every error names the field: `declares.users[2].name: an account name uses letters, digits, '_' and '-'; '.' at byte 2 isn't allowed`.
+Reading refuses duplicate keys, non-integer numbers, unknown fields (unless the manifest's own `ignorable` list names them), unknown values, fields set to their default, unsorted sets and text that isn't in its canonical form. Every error names the field: `declares.users[2].name: an account name can't contain '.' (at byte 2); use letters, digits, '_' and '-'`.
+
+The strict JSON reader and the `Account` and `Mode` types live in `ordin-core`, shared with trees; this crate re-exports them.

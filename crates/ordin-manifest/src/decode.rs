@@ -17,7 +17,8 @@ use crate::error::{Error, ErrorKind, Path, Segment};
 use crate::json::Value;
 use crate::model::*;
 use crate::spdx;
-use crate::text::{self, Account, Date, Id, Mode, UnitName, Url};
+use crate::text::{self, Date, Id, UnitName, Url};
+use ordin_core::{Account, Mode};
 
 type R<T> = Result<T, Error>;
 
@@ -1036,9 +1037,7 @@ impl Decoder {
     }
 
     fn owner(&mut self, o: &mut Obj<'_>) -> R<(Account, Account)> {
-        let root: Account = "root"
-            .parse()
-            .map_err(|e: String| Error::at(&o.path, ErrorKind::Invalid(e)))?;
+        let root = Account::root();
         let mut get = |key: &'static str| -> R<Account> {
             match o.opt(self, key) {
                 Some((v, p)) => {

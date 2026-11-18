@@ -522,6 +522,12 @@ version = "0.1.1"
 [[package]]
 name = "ordin-tree"
 version = "0.1.1"
+dependencies = [
+ "ordin-core",
+ "proptest",
+ "serde_json",
+ "thiserror",
+]
 
 [[package]]
 name = "ordin-tuf"

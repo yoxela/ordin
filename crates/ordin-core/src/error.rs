@@ -20,6 +20,8 @@ pub enum Kind {
     Facet,
     /// A symbol version node, after `@` in a soname.
     VersionNode,
+    /// A user or group name.
+    Account,
 }
 
 impl fmt::Display for Kind {
@@ -31,6 +33,7 @@ impl fmt::Display for Kind {
             Self::FilePath => "a file path",
             Self::Facet => "a facet",
             Self::VersionNode => "a symbol version node",
+            Self::Account => "an account name",
         })
     }
 }
@@ -118,6 +121,9 @@ pub enum Error {
     /// An architecture Ordin doesn't know.
     #[error("unknown architecture {0:?}; Ordin knows x86_64, aarch64 and noarch")]
     UnknownArch(String),
+    /// A mode that isn't four octal digits.
+    #[error("a mode is four octal digits, such as \"0750\": {0:?}")]
+    BadMode(String),
 }
 
 #[cfg(test)]

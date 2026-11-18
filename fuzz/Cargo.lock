@@ -121,6 +121,7 @@ version = "0.1.1"
 dependencies = [
  "blake3",
  "serde",
+ "serde_json",
  "thiserror",
 ]
 
@@ -141,6 +142,7 @@ dependencies = [
  "ordin-core",
  "ordin-depexpr",
  "ordin-manifest",
+ "ordin-tree",
  "ordin-version",
 ]
 
@@ -154,6 +156,14 @@ dependencies = [
  "regex-syntax",
  "serde",
  "serde_json",
+ "thiserror",
+]
+
+[[package]]
+name = "ordin-tree"
+version = "0.1.1"
+dependencies = [
+ "ordin-core",
  "thiserror",
 ]
 
