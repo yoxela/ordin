@@ -474,6 +474,14 @@ dependencies = [
 [[package]]
 name = "ordin-pack"
 version = "0.1.1"
+dependencies = [
+ "ordin-core",
+ "ordin-tree",
+ "proptest",
+ "rustix",
+ "tempfile",
+ "thiserror",
+]
 
 [[package]]
 name = "ordin-plan"

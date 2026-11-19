@@ -35,6 +35,14 @@ All notable changes to Ordin are recorded here. The format follows [Keep a Chang
   - `cargo xtask release-sign` (`make release-sign TAG=…`) verifies the tag against the maintainer's own signers file, checks the draft's files, checksums and provenance, rebuilds the tag and requires every file to match, signs each file with the SSH release key, asks, uploads the signatures, checks the draft again and publishes it.
   - `release/allowed_signers` holds the public keys: one for tags (namespace `git`) and one for release files (namespace `ordin-release`). The README says how to verify a release.
   - CI runs `shellcheck` on the release scripts.
+- ORD-110: walking a tree, in `ordin-pack`.
+  - `walk` records a directory as a tree: every path's type, mode, `user.*` attributes, file capabilities, size and digests. Timestamps are not recorded, and hard links become links to the first of their names in sort order.
+  - Owners never come from the disk. Everything is `root:root` unless a `PATH=USER:GROUP` override says otherwise. An override covers the path and everything below it, the most specific one wins, and one that matches nothing is an error.
+  - An undeclared setuid or setgid file draws a warning, which says when the file would run as root only because of the default owner.
+  - The directory isn't trusted. Symlinks are never followed below the root, a FIFO can't hang the walk, a walk stays on one mount, and anything that changes during the walk is an error. Device nodes, sockets, FIFOs, names a tree can't hold and unreadable files are refused, naming the path, with control characters escaped.
+  - Attributes a tree can't hold are refused rather than dropped, including POSIX ACLs. SELinux, IMA and EVM labels belong to the packing machine and are left behind.
+  - `ordin-tree` gains `Capabilities::from_xattr`, which reads the kernel's `security.capability` value, with a fuzz target.
+  - `rustix` is a new dependency, for system calls `std` doesn't offer.
 - ORD-102: file digests, in `ordin-tree`.
   - `file_digests` reads any `Read` once and returns the file's size, its BLAKE3 digest and its fs-verity digest. `FileHasher` does the same for bytes given piece by piece, so later stories can digest a file while doing other work on it.
   - The fs-verity digest is Ordin's own implementation (SHA-256, 4 KiB blocks, no salt), through the `sha2` crate. Its memory use doesn't grow with the file beyond one block per tree level.

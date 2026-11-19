@@ -11,5 +11,15 @@ publish.workspace = true
 [package.metadata.ordin]
 layer = 2
 
+[dependencies]
+ordin-core = { path = "../ordin-core" }
+ordin-tree = { path = "../ordin-tree" }
+rustix.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
+tempfile = "3.27.0"
+
 [lints]
 workspace = true
