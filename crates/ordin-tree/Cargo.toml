@@ -13,6 +13,7 @@ layer = 0
 
 [dependencies]
 ordin-core = { path = "../ordin-core" }
+sha2.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]
