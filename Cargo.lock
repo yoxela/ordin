@@ -526,6 +526,7 @@ dependencies = [
  "ordin-core",
  "proptest",
  "serde_json",
+ "sha2",
  "thiserror",
 ]
 

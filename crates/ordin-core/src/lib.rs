@@ -27,6 +27,9 @@
 //! and brackets can't appear in any atom, and its keywords can't be
 //! package names, so an expression always parses one way.
 //!
+//! [`Blake3Hasher`] computes a BLAKE3 digest piece by piece, for data that
+//! doesn't fit in memory at once.
+//!
 //! Nothing here does I/O, and no input makes it panic.
 
 mod account;
@@ -41,7 +44,7 @@ mod serde_str;
 pub use account::{ACCOUNT_MAX, Account, Mode};
 pub use arch::Arch;
 pub use atom::Atom;
-pub use digest::{Algorithm, Digest};
+pub use digest::{Algorithm, Blake3Hasher, Digest};
 pub use error::{Error, Kind};
 pub use name::{
     Capability, FACET_MAX, Facet, FilePath, KEYWORDS, NAME_MAX, NAME_MIN, PATH_MAX, PackageName,

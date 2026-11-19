@@ -69,6 +69,24 @@ impl Digest {
     }
 }
 
+/// A BLAKE3 digest computed piece by piece, for data that doesn't fit in
+/// memory at once. The pieces hash exactly as their concatenation does.
+#[derive(Debug, Default)]
+pub struct Blake3Hasher(blake3::Hasher);
+
+impl Blake3Hasher {
+    /// Adds the next piece of the data.
+    pub fn update(&mut self, data: &[u8]) {
+        self.0.update(data);
+    }
+
+    /// The digest of everything added.
+    #[must_use]
+    pub fn finish(self) -> Digest {
+        Digest::new(Algorithm::Blake3, *self.0.finalize().as_bytes())
+    }
+}
+
 impl FromStr for Digest {
     type Err = Error;
 
@@ -117,6 +135,16 @@ crate::serde_str::impl_serde!(Digest);
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_hasher_gives_the_digest_of_its_pieces_joined() {
+        let mut hasher = Blake3Hasher::default();
+        hasher.update(b"hello ");
+        hasher.update(b"");
+        hasher.update(b"world");
+        assert_eq!(hasher.finish(), Digest::blake3(b"hello world"));
+        assert_eq!(Blake3Hasher::default().finish(), Digest::blake3(b""));
+    }
 
     #[test]
     fn blake3_matches_the_reference_vector() {

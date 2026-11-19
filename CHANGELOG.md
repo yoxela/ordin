@@ -35,6 +35,11 @@ All notable changes to Ordin are recorded here. The format follows [Keep a Chang
   - `cargo xtask release-sign` (`make release-sign TAG=…`) verifies the tag against the maintainer's own signers file, checks the draft's files, checksums and provenance, rebuilds the tag and requires every file to match, signs each file with the SSH release key, asks, uploads the signatures, checks the draft again and publishes it.
   - `release/allowed_signers` holds the public keys: one for tags (namespace `git`) and one for release files (namespace `ordin-release`). The README says how to verify a release.
   - CI runs `shellcheck` on the release scripts.
+- ORD-102: file digests, in `ordin-tree`.
+  - `file_digests` reads any `Read` once and returns the file's size, its BLAKE3 digest and its fs-verity digest. `FileHasher` does the same for bytes given piece by piece, so later stories can digest a file while doing other work on it.
+  - The fs-verity digest is Ordin's own implementation (SHA-256, 4 KiB blocks, no salt), through the `sha2` crate. Its memory use doesn't grow with the file beyond one block per tree level.
+  - Tested against `fsverity digest` at every boundary of the tree's shape, and against composefs-rs's vector.
+  - `ordin-core` gains `Blake3Hasher`, which computes a BLAKE3 digest piece by piece.
 - ORD-101: trees, format 1, in `ordin-tree`, with `FORMAT.md` as its field-by-field reference.
   - A tree is one facet's file list as canonical JSON (RFC 8785), entries sorted by the bytes of their paths. Its identity is the BLAKE3 digest of its canonical bytes. `Tree::from_canonical_bytes` reads only canonical bytes, `Tree::new` builds a tree from entries in any order, and `to_canonical_bytes` and `digest` check every rule again.
   - Entries are files, directories, symlinks and hard links. A file records its mode, owner and group names, size, BLAKE3 digest and fs-verity digest (SHA-256, 4 KiB blocks, no salt, as ORD-100 settled). Defaults are left out, and no timestamp is recorded.

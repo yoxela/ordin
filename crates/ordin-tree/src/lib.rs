@@ -23,9 +23,13 @@
 //! order. [`Tree::to_canonical_bytes`] and [`Tree::digest`] encode it and
 //! check the result against every rule again. Nothing here does I/O, and
 //! no input makes it panic.
+//!
+//! [`file_digests`] and [`FileHasher`] compute the digests a file entry
+//! records, in one pass over bytes the caller supplies.
 
 mod caps;
 mod decode;
+mod digests;
 mod encode;
 mod error;
 mod model;
@@ -36,6 +40,7 @@ use ordin_core::Digest;
 use ordin_core::json::{self, MAX_INT};
 
 pub use caps::{Capabilities, LinuxCap};
+pub use digests::{FileDigests, FileHasher, file_digests};
 pub use error::{Error, ErrorKind, Location};
 pub use model::{DIR_MODE, Dir, Entry, FILE_MODE, File, Kind, Symlink};
 pub use path::{NAME_MAX, PATH_MAX, SymlinkTarget, TreePath};
