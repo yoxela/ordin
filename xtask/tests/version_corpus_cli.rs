@@ -8,9 +8,21 @@
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
-use std::process::{Command, Output};
+use std::process::{Command, Output, Stdio};
+use std::sync::{Mutex, MutexGuard, PoisonError};
 
 type R<T> = Result<T, Box<dyn std::error::Error>>;
+
+/// Held while writing a fake `dpkg` and while starting a process. The
+/// tests run in parallel threads, and a process started while another
+/// thread has its script open for writing holds that descriptor until it
+/// has finished starting. Linux won't run a file open for writing, so the
+/// script would fail with "Text file busy".
+static STARTING: Mutex<()> = Mutex::new(());
+
+fn starting() -> MutexGuard<'static, ()> {
+    STARTING.lock().unwrap_or_else(PoisonError::into_inner)
+}
 
 /// A fake `dpkg` that prints a version, and agrees with every comparison
 /// unless one of its arguments is `666`.
@@ -29,7 +41,10 @@ exit 0
 fn fake_dpkg() -> R<tempfile::TempDir> {
     let dir = tempfile::tempdir()?;
     let dpkg = dir.path().join("dpkg");
-    fs::write(&dpkg, FAKE_DPKG)?;
+    {
+        let _starting = starting();
+        fs::write(&dpkg, FAKE_DPKG)?;
+    }
     fs::set_permissions(&dpkg, fs::Permissions::from_mode(0o755))?;
     Ok(dir)
 }
@@ -38,10 +53,20 @@ fn xtask(bin: &Path, args: &[&str]) -> R<Output> {
     let path = std::env::var_os("PATH").unwrap_or_default();
     let mut paths = vec![bin.to_path_buf()];
     paths.extend(std::env::split_paths(&path));
-    Ok(Command::new(env!("CARGO_BIN_EXE_xtask"))
+    let mut command = Command::new(env!("CARGO_BIN_EXE_xtask"));
+    command
         .args(args)
         .env("PATH", std::env::join_paths(paths)?)
-        .output()?)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    // `spawn` returns once the new program is running, so the lock isn't
+    // needed while waiting for it.
+    let child = {
+        let _starting = starting();
+        command.spawn()?
+    };
+    Ok(child.wait_with_output()?)
 }
 
 fn text(bytes: &[u8]) -> String {
