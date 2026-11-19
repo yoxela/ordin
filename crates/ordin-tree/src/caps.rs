@@ -119,7 +119,77 @@ pub struct Capabilities {
     pub effective: bool,
 }
 
+/// The capability numbers set in `bits`, by name.
+fn caps_from_bits(which: &str, bits: u64) -> Result<BTreeSet<LinuxCap>, String> {
+    (0u8..64)
+        .filter(|number| (bits >> number) % 2 == 1)
+        .map(|number| {
+            LinuxCap::from_number(number).ok_or_else(|| {
+                format!("the {which} set has capability {number}, which Ordin doesn't know")
+            })
+        })
+        .collect()
+}
+
+/// A 64-bit set from its two halves.
+fn wide(low: u32, high: u32) -> u64 {
+    u64::from(high) * (1 << 32) + u64::from(low)
+}
+
 impl Capabilities {
+    /// Reads the kernel's `security.capability` value (`struct
+    /// vfs_ns_cap_data` and its older forms: versions 1 to 3, in
+    /// little-endian). Everything a tree can't say exactly is refused:
+    /// capabilities Ordin doesn't know, flags other than "effective", a
+    /// version 3 value tied to a user namespace's root, and a value with
+    /// no capabilities, which still changes how a setuid-root program
+    /// runs.
+    ///
+    /// # Errors
+    ///
+    /// A message saying what is wrong with the value.
+    pub fn from_xattr(value: &[u8]) -> Result<Self, String> {
+        let (words, rest) = value.as_chunks::<4>();
+        let words: Vec<u32> = words.iter().map(|w| u32::from_le_bytes(*w)).collect();
+        let ([magic, sets @ ..], []) = (words.as_slice(), rest) else {
+            return Err(format!(
+                "a capability value is a whole number of 32-bit words; this one is {} bytes",
+                value.len()
+            ));
+        };
+        let (permitted, inheritable, root_id) = match (magic >> 24, sets) {
+            (1, &[permitted, inheritable]) => (u64::from(permitted), u64::from(inheritable), 0),
+            (2, &[pl, il, ph, ih]) => (wide(pl, ph), wide(il, ih), 0),
+            (3, &[pl, il, ph, ih, root_id]) => (wide(pl, ph), wide(il, ih), root_id),
+            (version @ 1..=3, _) => {
+                return Err(format!(
+                    "a version {version} capability value can't be {} bytes",
+                    value.len()
+                ));
+            }
+            (version, _) => return Err(format!("unknown capability version {version}")),
+        };
+        let effective = match magic % (1 << 24) {
+            0 => false,
+            1 => true,
+            flags => return Err(format!("unknown capability flags {flags:#x}")),
+        };
+        if root_id != 0 {
+            return Err(format!(
+                "these capabilities apply only in a user namespace whose root is user {root_id}"
+            ));
+        }
+        let capabilities = Self {
+            permitted: caps_from_bits("permitted", permitted)?,
+            inheritable: caps_from_bits("inheritable", inheritable)?,
+            effective,
+        };
+        if capabilities.is_empty() {
+            return Err("a capability value with no capabilities can't be recorded".to_owned());
+        }
+        Ok(capabilities)
+    }
+
     /// Whether both sets are empty, which a tree refuses.
     #[must_use]
     pub fn is_empty(&self) -> bool {
@@ -170,6 +240,84 @@ mod tests {
             .collect();
         let names: Vec<_> = set.iter().map(|c| c.name()).collect();
         assert_eq!(names, ["cap_chown", "cap_net_raw", "cap_sys_admin"]);
+    }
+
+    /// A `security.capability` value from its 32-bit words.
+    fn value(words: &[u32]) -> Vec<u8> {
+        words.iter().flat_map(|w| w.to_le_bytes()).collect()
+    }
+
+    fn names(set: &BTreeSet<LinuxCap>) -> Vec<&'static str> {
+        set.iter().map(|c| c.name()).collect()
+    }
+
+    const V1: u32 = 0x0100_0000;
+    const V2: u32 = 0x0200_0000;
+    const V3: u32 = 0x0300_0000;
+    /// `cap_net_raw` (13) in the low word.
+    const NET_RAW: u32 = 1 << 13;
+    /// `cap_checkpoint_restore` (40) in the high word.
+    const RESTORE: u32 = 1 << 8;
+
+    #[test]
+    fn every_version_reads_its_sets() {
+        // What `setcap cap_net_raw+ep` writes.
+        let caps = Capabilities::from_xattr(&value(&[V2 + 1, NET_RAW, 0, 0, 0])).unwrap();
+        assert_eq!(names(&caps.permitted), ["cap_net_raw"]);
+        assert!(caps.inheritable.is_empty());
+        assert!(caps.effective);
+
+        let caps = Capabilities::from_xattr(&value(&[V1, 1, NET_RAW])).unwrap();
+        assert_eq!(names(&caps.permitted), ["cap_chown"]);
+        assert_eq!(names(&caps.inheritable), ["cap_net_raw"]);
+        assert!(!caps.effective);
+
+        // The words alternate permitted and inheritable, low then high.
+        let caps = Capabilities::from_xattr(&value(&[V3, NET_RAW, 1, RESTORE, 0, 0])).unwrap();
+        assert_eq!(
+            names(&caps.permitted),
+            ["cap_checkpoint_restore", "cap_net_raw"]
+        );
+        assert_eq!(names(&caps.inheritable), ["cap_chown"]);
+    }
+
+    #[test]
+    fn inheritable_high_words_count() {
+        let caps = Capabilities::from_xattr(&value(&[V2, 0, 1, 0, RESTORE])).unwrap();
+        assert!(caps.permitted.is_empty());
+        assert_eq!(
+            names(&caps.inheritable),
+            ["cap_checkpoint_restore", "cap_chown"]
+        );
+    }
+
+    #[test]
+    fn values_a_tree_cannot_say_are_refused() {
+        let cases: [(Vec<u8>, &str); 10] = [
+            (Vec::new(), "whole number"),
+            (vec![0; 3], "whole number"),
+            (vec![0; 21], "whole number"),
+            (value(&[V1, 1]), "version 1"),
+            (value(&[V2, 1, 0, 0]), "version 2"),
+            (value(&[V3, 1, 0, 0, 0]), "version 3"),
+            (value(&[0x0400_0000, 1, 0, 0, 0]), "version 4"),
+            (value(&[V2 + 2, 1, 0, 0, 0]), "flags 0x2"),
+            (value(&[V3, 1, 0, 0, 0, 1000]), "user 1000"),
+            (value(&[V2 + 1, 0, 0, 0, 0]), "no capabilities"),
+        ];
+        for (bytes, expected) in cases {
+            let e = Capabilities::from_xattr(&bytes).unwrap_err();
+            assert!(e.contains(expected), "{bytes:?}: {e}");
+        }
+    }
+
+    #[test]
+    fn capabilities_the_kernel_may_add_later_are_refused() {
+        // 41 is the first number Ordin doesn't know.
+        let e = Capabilities::from_xattr(&value(&[V2, 0, 0, 1 << 9, 0])).unwrap_err();
+        assert!(e.contains("permitted set has capability 41"), "{e}");
+        let e = Capabilities::from_xattr(&value(&[V2, 0, 0, 0, 1 << 31])).unwrap_err();
+        assert!(e.contains("inheritable set has capability 63"), "{e}");
     }
 
     #[test]

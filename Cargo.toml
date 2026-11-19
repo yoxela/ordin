@@ -31,6 +31,9 @@ serde_json = "1.0.154"
 blake3 = "1.8.7"
 # SHA-256, for fs-verity digests (ORD-102). Wrapped by ordin-tree's FileHasher.
 sha2 = "0.11.1"
+# Safe system calls, for what std doesn't offer: walking a tree relative to
+# open directories, statx and extended attributes (ORD-110).
+rustix = { version = "1.1.6", features = ["fs"] }
 # Checks setting patterns without compiling or running them (ORD-013).
 regex-syntax = "0.8.11"
 
