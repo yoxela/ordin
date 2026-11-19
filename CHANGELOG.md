@@ -82,4 +82,5 @@ All notable changes to Ordin are recorded here. The format follows [Keep a Chang
 
 ### Fixed
 
+- The `version-corpus` command-line tests no longer fail now and then with "Text file busy". Their parallel threads could start a process while another thread was still writing its fake `dpkg`, and the new process briefly kept that file open for writing. A lock now keeps the two apart.
 - CI installs `cargo-deny` with the pinned toolchain named explicitly, which removes cargo's toolchain-override warning, and the cached binary's key now includes the toolchain.
