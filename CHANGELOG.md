@@ -35,6 +35,13 @@ All notable changes to Ordin are recorded here. The format follows [Keep a Chang
   - `cargo xtask release-sign` (`make release-sign TAG=…`) verifies the tag against the maintainer's own signers file, checks the draft's files, checksums and provenance, rebuilds the tag and requires every file to match, signs each file with the SSH release key, asks, uploads the signatures, checks the draft again and publishes it.
   - `release/allowed_signers` holds the public keys: one for tags (namespace `git`) and one for release files (namespace `ordin-release`). The README says how to verify a release.
   - CI runs `shellcheck` on the release scripts.
+- ORD-130: writing `.ordin` files, in `ordin-archive`.
+  - `write` writes a package as an OCI artifact (`artifactType` `application/vnd.ordin.package.v1`, the empty config) in a ustar archive. The format is in `FORMAT.md`.
+  - The layers come in a fixed order: the manifest, the license texts, one tree per facet, the chunk index, then per facet a pack table and a chunk pack. Media types are `application/vnd.ordin.<part>.v1`, every descriptor carries its blob's BLAKE3 digest in `com.ordinpm.blake3`, and per-facet parts carry `com.ordinpm.facet`.
+  - A chunk pack holds a facet's chunks as independent zstd frames (level 19 by default), each chunk once, in the order the facet's files first need them. Its pack table (format 1) records the level and each frame's compressed offset and length, outside every identity.
+  - The archive is deterministic: blobs sorted by path, fixed modes, owners and timestamps, nothing after the closing blocks. The same package gives the same bytes on any number of compression threads.
+  - The writer reads each file once, cuts it with `ordin-tree`'s chunker and builds the chunk index in the same pass. It refuses a file that isn't what its tree records, trees and license texts that aren't what the manifest records, and a blob that reads back differently. Chunk packs are spooled to anonymous temporary files.
+  - New dependencies: `zstd` (with its bundled libzstd 1.5.7, pinned through `Cargo.lock`, legacy formats off) and `tempfile`. The `tar` crate reads the output back in tests.
 - ORD-114: facet classification, in `ordin-pack`.
   - `classify` splits a normalized tree into facets by path rules: `debug` under `/usr/lib/debug`; `doc` under `/usr/share/doc`, `man` and `info`; `locale:<ll>` under `/usr/share/locale/<ll>/`; `dev` under `/usr/include`, for `*.a` and for pkg-config files; `runtime` for everything else.
   - Overrides from the recipe move a path and everything below it, the most specific one winning. An override that matches nothing, or two for one path, is an error.
@@ -105,6 +112,7 @@ All notable changes to Ordin are recorded here. The format follows [Keep a Chang
 - `cargo xtask release-sign` checks that CI's draft exists, for the tag and with the expected files, before it clones or creates anything. Started while the release workflow is still running, it now stops at once, says so and leaves no work directory behind.
 - The first release will be 0.1.1. The `v0.1.0` tag was used once to test the release flow end to end and then deleted, so it is never reused.
 - The `cargo deny` license allow list drops BSD-2-Clause, BSD-3-Clause and ISC, which no dependency uses. Adding one back is a deliberate decision when a dependency needs it.
+- The `cargo deny` license allow list takes BSD-2-Clause and BSD-3-Clause back, for `zstd` and its bundled libzstd (ORD-130).
 
 ### Fixed
 

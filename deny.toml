@@ -20,6 +20,9 @@ allow = [
   "Zlib",
   "Unicode-3.0",
   "CC0-1.0",
+  # zstd and its bundled libzstd (ORD-130).
+  "BSD-2-Clause",
+  "BSD-3-Clause",
 ]
 confidence-threshold = 0.9
 
