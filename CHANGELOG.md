@@ -35,6 +35,13 @@ All notable changes to Ordin are recorded here. The format follows [Keep a Chang
   - `cargo xtask release-sign` (`make release-sign TAG=…`) verifies the tag against the maintainer's own signers file, checks the draft's files, checksums and provenance, rebuilds the tag and requires every file to match, signs each file with the SSH release key, asks, uploads the signatures, checks the draft again and publishes it.
   - `release/allowed_signers` holds the public keys: one for tags (namespace `git`) and one for release files (namespace `ordin-release`). The README says how to verify a release.
   - CI runs `shellcheck` on the release scripts.
+- ORD-006: third-party license notices in the release archives.
+  - Each archive carries `THIRD-PARTY-NOTICES.txt`. It lists every third-party crate the programs link for that target, followed by each crate's license files, verbatim.
+    - A crate counts when a program reaches it through normal dependencies on that target, as `cargo metadata --filter-platform` resolves them. Build and dev dependencies, and proc-macro crates with what only they use, never reach a binary and are left out.
+    - The license files are the crate root's `LICENSE*`, `LICENCE*`, `COPYING*`, `COPYRIGHT*`, `NOTICE*` and `UNLICENSE*` files, a `LICENSES/` directory there, and the file `license-file` names. Each must be a regular UTF-8 file of at most 1 MiB inside the crate.
+  - `THIRD-PARTY/` holds the pinned toolchain's notice for Rust's standard library, and in the musl archives musl 1.2.5's `COPYRIGHT`, kept in `release/notices/` from musl's release.
+  - A crate with no license expression or no license file stops `dist` before anything is built, naming the crate. The notices record no paths, so archives stay byte for byte reproducible.
+  - `dist` no longer refuses to build when the programs link third-party crates.
 - ORD-120: `ordin pack`, rung 0 on the command line.
   - `ordin pack DIR --name N --version V` makes a package with only those flags.
     - Optional flags: `--release` (1), `--license` (`NOASSERTION`, with a warning), `--license-file ID=PATH`, `--summary` (the name, with a warning), `--arch` (this machine's, with a warning), `--out` (`NAME-VERSION.ARCH.ordin`), `--owner`, `--setuid`, `--prefix` and `--json`.
