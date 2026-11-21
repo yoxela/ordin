@@ -13,3 +13,21 @@ Packaging rungs 0 and 1: scanning a tree, inferring requirements, classifying fa
 - **Refused, naming the path:** device nodes, sockets, FIFOs, names and symlink targets a tree can't hold, unreadable files, and mount points inside the tree.
 
 The directory isn't trusted. Each name is opened relative to its parent without following symlinks, files are opened without blocking, and whatever changes during the walk is an error.
+
+## Normalizing the layout
+
+`normalize(&tree, &options)` maps a walked install root into Ordin's layout. Everything a package ships ends up under `/usr`, and the rest becomes declarations for the manifest. The package's name is needed, because config defaults and seeds are kept under it.
+
+- **`usr/`** stays where it is. `bin/`, `sbin/`, `lib/` and `lib64/` move under `usr/`, as on a merged-`/usr` system, and a top-level link such as `bin -> usr/bin` is dropped.
+- **`etc/`** moves to `/usr/share/ordin/defaults/<name>/`. Each file becomes a `three-way` config default, and each empty directory a `drop-in` one. Symlinks and hard links under `etc/` are refused.
+- **`var/`:** under `var/lib`, `var/cache`, `var/log`, `var/spool` and `var/tmp`, each directory becomes a state path of that class (data, cache, log, spool, tmp) with its owner, group and mode. An empty file becomes a state file, created if missing. Any other file becomes a seed, kept at `/usr/share/ordin/seeds/<name>/var/…` and copied once if missing.
+- **Prefixes:** `--prefix /opt/foo` says the software was installed with that prefix, so `opt/foo/bin/x` moves to `usr/bin/x`.
+- **Refused with a hint:**
+  - anything else at the top level (`opt/`, `srv/`, `home/`)
+  - `run/` and `var/run/`, whose directories are created at boot
+  - other directories under `var/`
+  - files of Ordin's own under `/usr/share/ordin`
+  - paths the manifest can't declare
+  - two paths that move to the same place, unless they are identical directories
+
+Missing directories above a moved path are added as `root:root 0755`, and hard links follow their files.

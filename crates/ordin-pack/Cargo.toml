@@ -13,6 +13,7 @@ layer = 2
 
 [dependencies]
 ordin-core = { path = "../ordin-core" }
+ordin-manifest = { path = "../ordin-manifest" }
 ordin-tree = { path = "../ordin-tree" }
 rustix.workspace = true
 thiserror.workspace = true

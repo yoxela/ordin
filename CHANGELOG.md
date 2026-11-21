@@ -35,6 +35,12 @@ All notable changes to Ordin are recorded here. The format follows [Keep a Chang
   - `cargo xtask release-sign` (`make release-sign TAG=…`) verifies the tag against the maintainer's own signers file, checks the draft's files, checksums and provenance, rebuilds the tag and requires every file to match, signs each file with the SSH release key, asks, uploads the signatures, checks the draft again and publishes it.
   - `release/allowed_signers` holds the public keys: one for tags (namespace `git`) and one for release files (namespace `ordin-release`). The README says how to verify a release.
   - CI runs `shellcheck` on the release scripts.
+- ORD-111: layout normalization, in `ordin-pack`.
+  - `normalize` maps a walked install root into Ordin's layout, so everything the package ships is under `/usr`. `bin/`, `sbin/`, `lib/` and `lib64/` move under `usr/`.
+  - `etc/` becomes config defaults under `/usr/share/ordin/defaults/<name>/`: files are merged three ways, and empty directories are drop-in directories.
+  - Directories under `var/lib`, `var/cache`, `var/log`, `var/spool` and `var/tmp` become state paths of that class with their owner, group and mode. Empty files become state files, and other files become seeds under `/usr/share/ordin/seeds/<name>/`.
+  - A prefix the software was installed with (`--prefix /opt/foo`) moves its contents to `/usr`. Anything else outside the layout is refused with a hint, and so are runtime directories, unknown `var/` directories, links under `etc/` and `var/`, Ordin's own `/usr/share/ordin`, paths the manifest can't declare, and paths that collide.
+  - `ordin-pack` now depends on `ordin-manifest`, whose declaration types the result uses.
 - ORD-103: chunking and the chunk index, in `ordin-tree`.
   - `chunk::chunk_file` cuts a file into content-defined chunks with Ordin's own FastCDC 2020, in the same single read that computes its digests, and hands each chunk's bytes to the caller. Files under the whole-file threshold are one chunk, and a file cut into more chunks than an index can list is refused.
   - The default settings are ORD-100's: chunks of 256 KiB to 4 MiB, 1 MiB on average, normalization level 1, files under 1 MiB whole. The gear table and masks are fixed in the format, and the cut points match the `fastcdc` crate's (3.2.1), which is a test-only dependency.
