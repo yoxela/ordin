@@ -36,6 +36,16 @@ sha2 = "0.11.1"
 rustix = { version = "1.1.6", features = ["fs"] }
 # Checks setting patterns without compiling or running them (ORD-013).
 regex-syntax = "0.8.11"
+# Compression of the chunk packs in .ordin files (ORD-130). Builds the bundled
+# libzstd (C) unless ZSTD_SYS_USE_PKG_CONFIG is set, which release builds never
+# set: compressed bytes depend on the library version, so Cargo.lock pins it.
+# The legacy formats and the dictionary builder are left out.
+zstd = { version = "0.14.4", default-features = false }
+# Anonymous temporary files: spooling chunk packs while a .ordin file is
+# written (ORD-130), and test fixtures.
+tempfile = "3.27.0"
+# Tests only: reading tar archives as a second opinion on Ordin's own writer.
+tar = { version = "0.4.46", default-features = false }
 
 # Every crate inherits these, except ordin-store and ordin-sandbox, which
 # repeat them with unsafe_code = "deny" instead of "forbid".
