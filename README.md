@@ -19,6 +19,10 @@ Each release has one archive per target, a `SHA256SUMS` file, and an SSH signatu
 | `x86_64-unknown-linux-musl`, `aarch64-unknown-linux-musl` | Any Linux: the binaries are statically linked |
 | `x86_64-unknown-linux-gnu`, `aarch64-unknown-linux-gnu` | Linux with glibc 2.34 or newer (as of 0.1.1) |
 
+Each archive carries Ordin's own license texts in `LICENSES/`, and the notices of the third-party code its programs contain:
+- `THIRD-PARTY-NOTICES.txt` lists every crate the programs link for that target, followed by each crate's license files exactly as the crate ships them.
+- `THIRD-PARTY/` holds Rust's notice for its standard library, which is in every binary, and in the musl archives also musl's notice, because musl is linked statically.
+
 CI builds every release in a pinned container ([`release/Dockerfile`](release/Dockerfile)) and records build provenance. The maintainer then rebuilds the tag separately, and signs and publishes the release only if every file matches CI's byte for byte.
 
 To verify a download, take [`release/allowed_signers`](release/allowed_signers) from the repository at the release's tag (not from the release page), then run, with OpenSSH 8.1 or newer:

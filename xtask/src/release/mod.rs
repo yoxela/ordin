@@ -17,6 +17,7 @@ use std::path::Path;
 pub mod checks;
 pub mod dist;
 pub mod exec;
+pub mod notices;
 pub mod pre_release;
 pub mod sign;
 pub mod signers;

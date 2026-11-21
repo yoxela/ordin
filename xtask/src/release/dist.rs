@@ -9,7 +9,7 @@
 //! `SOURCE_DATE_EPOCH`. The archives depend only on the files and that
 //! timestamp: entries are sorted, owned by root, and have fixed modes.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::fs;
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
@@ -18,8 +18,8 @@ use flate2::{Compression, GzBuilder};
 use sha2::{Digest, Sha256};
 
 use super::exec::{Cmd, Exec};
+use super::notices::{self, MUSL, NOTICES, RUST_LIBRARY, THIRD_PARTY};
 use super::{Error, say, version};
-use crate::model::Model;
 
 /// The release targets, built in this order.
 pub const TARGETS: &[&str] = &[
@@ -55,38 +55,6 @@ pub fn release_files(version: &str) -> Vec<String> {
     files.push(SUMS.to_owned());
     files.sort();
     files
-}
-
-/// Third-party packages that the shipped programs link, sorted. Their
-/// license notices would have to ship too, and the archives don't carry
-/// any yet, so `dist` refuses to build until they do.
-#[must_use]
-pub fn third_party_in_programs(model: &Model) -> Vec<String> {
-    let mut seen: BTreeSet<&str> = BTreeSet::new();
-    let mut stack: Vec<&str> = model
-        .packages
-        .iter()
-        .filter(|(_, p)| p.workspace_member && PROGRAMS.iter().any(|(pkg, _)| *pkg == p.name))
-        .map(|(id, _)| id.as_str())
-        .collect();
-    let mut found = BTreeSet::new();
-    while let Some(id) = stack.pop() {
-        if !seen.insert(id) {
-            continue;
-        }
-        let Some(package) = model.packages.get(id) else {
-            continue;
-        };
-        if !package.workspace_member {
-            found.insert(package.name.clone());
-        }
-        for (dep, kinds) in &package.deps {
-            if kinds.normal {
-                stack.push(dep);
-            }
-        }
-    }
-    found.into_iter().collect()
 }
 
 /// The `cargo build` command for one target.
@@ -129,6 +97,17 @@ pub fn source_date_epoch(value: Option<&str>) -> Result<u64, Error> {
         .map_err(|e| Error::parse("SOURCE_DATE_EPOCH", e))
 }
 
+/// What an archive entry holds.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Content {
+    /// A directory.
+    Dir,
+    /// A copy of this regular file.
+    File(PathBuf),
+    /// These bytes, made by `dist`.
+    Bytes(Vec<u8>),
+}
+
 /// One entry in an archive.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Entry {
@@ -136,8 +115,19 @@ pub struct Entry {
     pub path: String,
     /// The permission bits.
     pub mode: u32,
-    /// The file to copy, or `None` for a directory.
-    pub source: Option<PathBuf>,
+    /// What it holds.
+    pub content: Content,
+}
+
+/// What a target's archive carries about third-party code: the generated
+/// `THIRD-PARTY-NOTICES.txt`, and the files copied whole into
+/// `THIRD-PARTY/`, by name.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ThirdParty {
+    /// `THIRD-PARTY-NOTICES.txt`.
+    pub notices: String,
+    /// Files for `THIRD-PARTY/`, by their names there.
+    pub files: Vec<(String, PathBuf)>,
 }
 
 /// Lists a directory's regular files, sorted by name.
@@ -168,8 +158,9 @@ pub fn regular_files(dir: &Path) -> Result<Vec<(String, PathBuf)>, Error> {
     Ok(files)
 }
 
-/// The entries of one target's archive, sorted by path: the programs, the
-/// license texts and the README, under `ordin-<version>-<target>/`.
+/// The entries of one target's archive, sorted by path, under
+/// `ordin-<version>-<target>/`: the programs, the license texts, the
+/// README and the third-party notices.
 ///
 /// # Errors
 ///
@@ -179,33 +170,43 @@ pub fn archive_entries(
     binaries: &Path,
     version: &str,
     target: &str,
+    third_party: &ThirdParty,
 ) -> Result<Vec<Entry>, Error> {
     let top = format!("ordin-{version}-{target}");
     let dir = |path: String| Entry {
         path,
         mode: 0o755,
-        source: None,
+        content: Content::Dir,
     };
-    let mut entries = vec![dir(format!("{top}/")), dir(format!("{top}/LICENSES/"))];
+    let file = |path: String, source: PathBuf| Entry {
+        path,
+        mode: 0o644,
+        content: Content::File(source),
+    };
+    let mut entries = vec![
+        dir(format!("{top}/")),
+        dir(format!("{top}/LICENSES/")),
+        dir(format!("{top}/{THIRD_PARTY}/")),
+    ];
     for (_, bin) in PROGRAMS {
         entries.push(Entry {
             path: format!("{top}/{bin}"),
             mode: 0o755,
-            source: Some(binaries.join(bin)),
+            content: Content::File(binaries.join(bin)),
         });
     }
     for (name, path) in regular_files(&root.join("LICENSES"))? {
-        entries.push(Entry {
-            path: format!("{top}/LICENSES/{name}"),
-            mode: 0o644,
-            source: Some(path),
-        });
+        entries.push(file(format!("{top}/LICENSES/{name}"), path));
     }
+    entries.push(file(format!("{top}/README.md"), root.join("README.md")));
     entries.push(Entry {
-        path: format!("{top}/README.md"),
+        path: format!("{top}/{NOTICES}"),
         mode: 0o644,
-        source: Some(root.join("README.md")),
+        content: Content::Bytes(third_party.notices.as_bytes().to_vec()),
     });
+    for (name, path) in &third_party.files {
+        entries.push(file(format!("{top}/{THIRD_PARTY}/{name}"), path.clone()));
+    }
     entries.sort_by(|a, b| a.path.cmp(&b.path));
     Ok(entries)
 }
@@ -230,15 +231,22 @@ pub fn write_archive(entries: &[Entry], mtime: u64, out: &Path) -> Result<(), Er
         header.set_mtime(mtime);
         header.set_uid(0);
         header.set_gid(0);
-        match &entry.source {
-            None => {
+        match &entry.content {
+            Content::Dir => {
                 header.set_entry_type(tar::EntryType::Directory);
                 header.set_size(0);
                 header.set_cksum();
                 tar.append(&header, io::empty())
                     .map_err(|e| Error::io(out, &e))?;
             }
-            Some(source) => {
+            Content::Bytes(bytes) => {
+                header.set_entry_type(tar::EntryType::Regular);
+                header.set_size(u64::try_from(bytes.len()).unwrap_or(u64::MAX));
+                header.set_cksum();
+                tar.append(&header, bytes.as_slice())
+                    .map_err(|e| Error::io(Path::new(&entry.path), &e))?;
+            }
+            Content::File(source) => {
                 let meta = fs::symlink_metadata(source).map_err(|e| Error::io(source, &e))?;
                 if !meta.is_file() {
                     return Err(Error::check(format!(
@@ -354,14 +362,72 @@ pub fn check_sums(dir: &Path) -> Result<(), Error> {
     Ok(())
 }
 
+/// The toolchain's sysroot, as `rustc` in `root` reports it, so the
+/// toolchain `rust-toolchain.toml` pins.
+fn sysroot(exec: &dyn Exec, root: &Path) -> Result<PathBuf, Error> {
+    let out = exec.run(&Cmd::new("rustc").dir(root).args(["--print", "sysroot"]))?;
+    Ok(PathBuf::from(out.stdout_text()))
+}
+
+/// Requires a notice file that is copied whole to be a regular file.
+fn notice_file(path: PathBuf, what: &str) -> Result<PathBuf, Error> {
+    match fs::symlink_metadata(&path) {
+        Ok(meta) if meta.is_file() => Ok(path),
+        _ => Err(Error::check(format!(
+            "{what} ({}) is missing or isn't a regular file",
+            path.display()
+        ))),
+    }
+}
+
+/// The third-party notices for every target, before anything is built.
+fn third_party(
+    exec: &dyn Exec,
+    manifest: &Path,
+    root: &Path,
+    version: &str,
+) -> Result<BTreeMap<String, ThirdParty>, Error> {
+    let rust = notice_file(
+        sysroot(exec, root)?.join(RUST_LIBRARY),
+        "the toolchain's notice for Rust's standard library",
+    )?;
+    let mut all = BTreeMap::new();
+    for target in TARGETS {
+        let meta = cargo_metadata::MetadataCommand::new()
+            .manifest_path(manifest)
+            .other_options(vec!["--filter-platform".to_owned(), (*target).to_owned()])
+            .exec()
+            .map_err(|e| Error::Command {
+                command: format!("cargo metadata --filter-platform {target}"),
+                detail: e.to_string(),
+            })?;
+        let mut files = vec![("rust-library-COPYRIGHT.html".to_owned(), rust.clone())];
+        if notices::is_musl(target) {
+            files.push((
+                "musl-COPYRIGHT".to_owned(),
+                notice_file(root.join(MUSL), "musl's notice")?,
+            ));
+        }
+        all.insert(
+            (*target).to_owned(),
+            ThirdParty {
+                notices: notices::render(version, target, &notices::collect(&meta)?),
+                files,
+            },
+        );
+    }
+    Ok(all)
+}
+
 /// Builds and packs a release into `out`, which must not exist yet.
 /// Returns the files written, sorted.
 ///
 /// # Errors
 ///
-/// Returns an error if the tag doesn't match the workspace version, a
-/// shipped program links third-party code, `SOURCE_DATE_EPOCH` is missing,
-/// a build fails, or a file can't be written.
+/// Returns an error if the tag doesn't match the workspace version,
+/// `SOURCE_DATE_EPOCH` is missing, a third-party crate in the programs
+/// can't be given a license notice, a build fails, or a file can't be
+/// written.
 pub fn run(
     exec: &dyn Exec,
     manifest: &Path,
@@ -382,15 +448,8 @@ pub fn run(
     let text = fs::read_to_string(&cargo_toml).map_err(|e| Error::io(&cargo_toml, &e))?;
     let version = version::workspace(&text)?.version;
     version::check_tag(tag, &version)?;
-    let third_party = third_party_in_programs(&Model::from_metadata(&meta));
-    if !third_party.is_empty() {
-        return Err(Error::check(format!(
-            "the programs link third-party crates ({}), whose license notices the \
-             archives don't carry yet; add them to dist before releasing",
-            third_party.join(", ")
-        )));
-    }
     let mtime = source_date_epoch(source_date_epoch_var)?;
+    let third_party = third_party(exec, manifest, root, &version)?;
     fs::create_dir(out).map_err(|e| Error::io(out, &e))?;
     let target_dir = meta.target_directory.as_std_path();
     for target in TARGETS {
@@ -403,8 +462,11 @@ pub fn run(
         let name = archive_name(&version, target);
         let path = out.join(&name);
         let binaries = target_dir.join(target).join("release");
+        let notices = third_party
+            .get(*target)
+            .ok_or_else(|| Error::check(format!("no notices for {target}")))?;
         write_archive(
-            &archive_entries(root, &binaries, &version, target)?,
+            &archive_entries(root, &binaries, &version, target, notices)?,
             mtime,
             &path,
         )?;
@@ -424,37 +486,6 @@ pub fn run(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::{DepKinds, Package};
-
-    fn package(name: &str, member: bool, deps: &[(&str, DepKinds)]) -> (String, Package) {
-        (
-            format!("{name}-id"),
-            Package {
-                name: name.into(),
-                workspace_member: member,
-                layer: None,
-                license: None,
-                manifest_dir: PathBuf::new(),
-                deps: deps.iter().map(|(d, k)| (format!("{d}-id"), *k)).collect(),
-            },
-        )
-    }
-
-    const NORMAL: DepKinds = DepKinds {
-        normal: true,
-        build: false,
-        dev: false,
-    };
-    const BUILD: DepKinds = DepKinds {
-        normal: false,
-        build: true,
-        dev: false,
-    };
-    const DEV: DepKinds = DepKinds {
-        normal: false,
-        build: false,
-        dev: true,
-    };
 
     #[test]
     fn names_follow_the_version_and_target() {
@@ -472,43 +503,6 @@ mod tests {
                 "ordin-0.1.0-x86_64-unknown-linux-musl.tar.gz",
             ]
         );
-    }
-
-    #[test]
-    fn third_party_code_reached_by_normal_edges_is_found() {
-        let model = Model {
-            packages: [
-                package(
-                    "ordin",
-                    true,
-                    &[("ordin-core", NORMAL), ("proptest", DEV), ("cc", BUILD)],
-                ),
-                package(
-                    "ordin-core",
-                    true,
-                    &[("serde", NORMAL), ("ordin", NORMAL), ("gone", NORMAL)],
-                ),
-                package("ordin-rescue", true, &[("libc", NORMAL)]),
-                package("xtask", true, &[("toml", NORMAL)]),
-                package("serde", false, &[("serde_derive", NORMAL)]),
-                package("serde_derive", false, &[]),
-                package("libc", false, &[]),
-                package("proptest", false, &[]),
-                package("cc", false, &[]),
-                package("toml", false, &[]),
-                // A third-party package that happens to share a program's
-                // name is not a program.
-                package("ordind", false, &[("hidden", NORMAL)]),
-                package("hidden", false, &[]),
-            ]
-            .into_iter()
-            .collect(),
-        };
-        assert_eq!(
-            third_party_in_programs(&model),
-            ["libc", "serde", "serde_derive"]
-        );
-        assert!(third_party_in_programs(&Model::default()).is_empty());
     }
 
     #[test]
@@ -622,7 +616,7 @@ mod tests {
         let entry = |source: PathBuf| Entry {
             path: "x/f".into(),
             mode: 0o644,
-            source: Some(source),
+            content: Content::File(source),
         };
         let e = write_archive(
             &[entry(dir.path().to_path_buf())],
@@ -641,9 +635,15 @@ mod tests {
         let long = Entry {
             path: "x".repeat(300),
             mode: 0o644,
-            source: None,
+            content: Content::Dir,
         };
         assert!(write_archive(&[long], 0, &dir.path().join("c.tar.gz")).is_err());
+        let generated = Entry {
+            path: "y".repeat(300),
+            mode: 0o644,
+            content: Content::Bytes(b"x".to_vec()),
+        };
+        assert!(write_archive(&[generated], 0, &dir.path().join("d.tar.gz")).is_err());
         fs::write(dir.path().join("exists"), "").unwrap();
         assert!(write_archive(&[], 0, &dir.path().join("exists")).is_err());
     }
