@@ -35,6 +35,12 @@ All notable changes to Ordin are recorded here. The format follows [Keep a Chang
   - `cargo xtask release-sign` (`make release-sign TAG=…`) verifies the tag against the maintainer's own signers file, checks the draft's files, checksums and provenance, rebuilds the tag and requires every file to match, signs each file with the SSH release key, asks, uploads the signatures, checks the draft again and publishes it.
   - `release/allowed_signers` holds the public keys: one for tags (namespace `git`) and one for release files (namespace `ordin-release`). The README says how to verify a release.
   - CI runs `shellcheck` on the release scripts.
+- ORD-114: facet classification, in `ordin-pack`.
+  - `classify` splits a normalized tree into facets by path rules: `debug` under `/usr/lib/debug`; `doc` under `/usr/share/doc`, `man` and `info`; `locale:<ll>` under `/usr/share/locale/<ll>/`; `dev` under `/usr/include`, for `*.a` and for pkg-config files; `runtime` for everything else.
+  - Overrides from the recipe move a path and everything below it, the most specific one winning. An override that matches nothing, or two for one path, is an error.
+  - Each facet's tree carries the directories above its entries and its content size. `runtime` is always present. A hard link whose file is in another facet becomes a copy with the same content, so each facet stands alone.
+  - Every path's facet and the reason for it are listed, for `ordin show --facets` (ORD-132).
+  - `ordin-core` gains `Facet::runtime`, `Facet::doc`, `Facet::dev` and `Facet::debug`.
 - ORD-111: layout normalization, in `ordin-pack`.
   - `normalize` maps a walked install root into Ordin's layout, so everything the package ships is under `/usr`. `bin/`, `sbin/`, `lib/` and `lib64/` move under `usr/`.
   - `etc/` becomes config defaults under `/usr/share/ordin/defaults/<name>/`: files are merged three ways, and empty directories are drop-in directories.

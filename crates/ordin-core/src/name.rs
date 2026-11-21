@@ -134,6 +134,32 @@ name_type!(
     check_facet
 );
 
+impl Facet {
+    /// `runtime`: what the package needs to run. Every base package has it.
+    #[must_use]
+    pub fn runtime() -> Self {
+        Self("runtime".to_owned())
+    }
+
+    /// `doc`: documentation, man and info pages.
+    #[must_use]
+    pub fn doc() -> Self {
+        Self("doc".to_owned())
+    }
+
+    /// `dev`: headers, static libraries and pkg-config files.
+    #[must_use]
+    pub fn dev() -> Self {
+        Self("dev".to_owned())
+    }
+
+    /// `debug`: split debug information, never installed by default.
+    #[must_use]
+    pub fn debug() -> Self {
+        Self("debug".to_owned())
+    }
+}
+
 const NAME_RULE: &str = "use lowercase letters, digits, '+', '.' and '-'";
 
 fn check_name(text: &str, what: Kind) -> Result<(), Error> {
@@ -707,6 +733,14 @@ mod tests {
             err::<Facet>("doc]"),
             Error::BadChar { ch: ']', .. }
         ));
+        for (made, name) in [
+            (Facet::runtime(), "runtime"),
+            (Facet::doc(), "doc"),
+            (Facet::dev(), "dev"),
+            (Facet::debug(), "debug"),
+        ] {
+            assert_eq!(made, name.parse::<Facet>().unwrap());
+        }
         assert!("a".repeat(64).parse::<Facet>().is_ok());
         assert!(matches!(
             err::<Facet>(&"a".repeat(65)),
