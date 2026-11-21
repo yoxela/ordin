@@ -43,11 +43,19 @@ pub fn pack_json(report: &Report) -> String {
     let value = object([
         ("arch", text(m.arch)),
         ("facets", Value::Object(facets)),
-        ("file", text(report.out.display())),
+        ("file", text(report.packed.out.display())),
         ("image", text(report.packed.written.image)),
         ("license", text(&m.license.spdx)),
         ("name", text(&m.name)),
         ("package", text(report.packed.written.package)),
+        (
+            "provides",
+            Value::Array(m.provides.iter().map(|p| text(&p.atom)).collect()),
+        ),
+        (
+            "requires",
+            Value::Array(m.requires.iter().map(text).collect()),
+        ),
         ("size", int(report.packed.written.size)),
         ("version", text(&m.version)),
         (
@@ -68,7 +76,7 @@ pub fn pack_text(report: &Report) -> String {
         .collect();
     format!(
         "wrote {} ({} bytes)\npackage {}\nfacets: {}\n",
-        report.out.display(),
+        report.packed.out.display(),
         report.packed.written.size,
         report.packed.written.package,
         facets.join(", ")

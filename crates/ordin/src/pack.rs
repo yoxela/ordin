@@ -8,8 +8,7 @@ use std::io::Read;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, anyhow, bail};
-use ordin_core::{Arch, PackageName};
-use ordin_pack::{PackError, PackOptions, Packed};
+use ordin_pack::{Output, PackError, PackOptions, Packed};
 use ordin_tree::chunk::ChunkParams;
 use ordin_version::Version;
 
@@ -21,10 +20,8 @@ pub const MAX_LICENSE_TEXT: u64 = 1 << 20;
 /// What `ordin pack` did.
 #[derive(Debug)]
 pub struct Report {
-    /// The package.
+    /// The package, and where it was written.
     pub packed: Packed,
-    /// Where it was written.
-    pub out: PathBuf,
     /// What the packager should know, in order.
     pub warnings: Vec<String>,
 }
@@ -41,20 +38,6 @@ fn version(text: &str, release: &str) -> Result<Version> {
         bail!("the version {text:?} with release {release:?} doesn't read back as given");
     }
     Ok(version)
-}
-
-/// The architecture this machine's programs are built for.
-fn arch_of(machine: &str) -> Result<Arch> {
-    machine.parse().map_err(|_| {
-        anyhow!("--arch is needed: Ordin doesn't package for this machine's {machine}")
-    })
-}
-
-/// The default output: `NAME-VERSION.ARCH.ordin` in the current
-/// directory. An epoch's `:` becomes `_`, which no version contains.
-fn default_out(name: &PackageName, version: &Version, arch: Arch) -> PathBuf {
-    let version = version.to_string().replace(':', "_");
-    PathBuf::from(format!("{name}-{version}.{arch}.ordin"))
 }
 
 /// Reads one license text, refusing anything but a regular file of at
@@ -112,15 +95,6 @@ fn hint(e: PackError) -> anyhow::Error {
 pub fn run(args: &PackArgs) -> Result<Report> {
     let mut warnings = Vec::new();
     let version = version(&args.version, &args.release)?;
-    let arch = if let Some(arch) = args.arch {
-        arch
-    } else {
-        let arch = arch_of(std::env::consts::ARCH)?;
-        warnings.push(format!(
-            "no --arch was given, so the package is for this machine's {arch}"
-        ));
-        arch
-    };
     let summary = args.summary.clone().unwrap_or_else(|| {
         warnings.push("no --summary was given, so the summary is the package's name".to_owned());
         args.name.to_string()
@@ -132,12 +106,12 @@ pub fn run(args: &PackArgs) -> Result<Report> {
     let out = args
         .out
         .clone()
-        .unwrap_or_else(|| default_out(&args.name, &version, arch));
+        .map_or_else(|| Output::Named(PathBuf::from(".")), Output::File);
     let options = PackOptions {
         root: args.dir.clone(),
         name: args.name.clone(),
         version,
-        arch,
+        arch: args.arch,
         summary,
         license,
         license_texts: license_texts(&args.license_files)?,
@@ -150,11 +124,8 @@ pub fn run(args: &PackArgs) -> Result<Report> {
     let packed = ordin_pack::pack(&options, &out).map_err(hint)?;
     warnings.extend(packed.warnings.iter().map(ToString::to_string));
     warnings.extend(packed.notes.iter().map(ToString::to_string));
-    Ok(Report {
-        packed,
-        out,
-        warnings,
-    })
+    warnings.extend(packed.inferred.iter().map(ToString::to_string));
+    Ok(Report { packed, warnings })
 }
 
 #[cfg(test)]
@@ -181,25 +152,5 @@ mod tests {
         assert!(version("1.0", "1-2").is_err());
         // An update level of 0 is hidden, so the release differs alone.
         assert!(version("1.0", "1+u0").is_err());
-    }
-
-    #[test]
-    fn only_architectures_ordin_packages_for_are_defaults() {
-        assert_eq!(arch_of("x86_64").unwrap(), Arch::X86_64);
-        assert_eq!(arch_of("aarch64").unwrap(), Arch::Aarch64);
-        assert_eq!(
-            arch_of("riscv64").unwrap_err().to_string(),
-            "--arch is needed: Ordin doesn't package for this machine's riscv64"
-        );
-    }
-
-    #[test]
-    fn the_default_output_names_the_package() {
-        let name: PackageName = "hello".parse().unwrap();
-        let v = version("1:2.12", "1").unwrap();
-        assert_eq!(
-            default_out(&name, &v, Arch::X86_64),
-            PathBuf::from("hello-1_2.12-1.x86_64.ordin")
-        );
     }
 }

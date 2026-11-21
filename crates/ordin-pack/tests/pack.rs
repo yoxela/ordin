@@ -16,7 +16,7 @@ mod packing {
     use ordin_archive::{Options as WriteOptions, Source, media};
     use ordin_core::{Arch, Digest, Facet};
     use ordin_manifest::{Manifest, Merge};
-    use ordin_pack::{OwnerOverride, PackError, PackOptions, Packed, RootSource, pack};
+    use ordin_pack::{Output, OwnerOverride, PackError, PackOptions, Packed, RootSource, pack};
     use ordin_tree::chunk::{ChunkIndex, ChunkParams};
     use ordin_tree::{Kind, Tree, TreePath};
     use serde_json::Value;
@@ -78,7 +78,7 @@ mod packing {
             root: root.to_path_buf(),
             name: "hello".parse().unwrap(),
             version: "2.12-1".parse().unwrap(),
-            arch: Arch::X86_64,
+            arch: Some(Arch::X86_64),
             summary: "Prints a friendly greeting".to_owned(),
             license: "MIT".to_owned(),
             license_texts: BTreeMap::from([("MIT".to_owned(), b"MIT License\n".to_vec())]),
@@ -97,8 +97,12 @@ mod packing {
         }
     }
 
+    fn pk(options: &PackOptions, out: &Path) -> Result<Packed, PackError> {
+        pack(options, &Output::File(out.to_path_buf()))
+    }
+
     fn packed(options: &PackOptions, out: &Path) -> (Packed, Vec<u8>) {
-        let packed = pack(options, out).unwrap();
+        let packed = pk(options, out).unwrap();
         (packed, fs::read(out).unwrap())
     }
 
@@ -320,7 +324,7 @@ mod packing {
         // A level the writer refuses fails after the temporary file is made.
         fs::write(&out, b"old").unwrap();
         o.write.level = 0;
-        let e = pack(&o, &out).unwrap_err();
+        let e = pk(&o, &out).unwrap_err();
         assert_eq!(e.to_string(), "the zstd level 0 is outside 1 to 22");
         assert_eq!(fs::read(&out).unwrap(), b"old");
         assert_eq!(
@@ -350,18 +354,18 @@ mod packing {
         let mut o = options(&dir.path().join("root"));
         o.license = "MIT AND".to_owned();
         assert!(
-            pack(&o, &out)
+            pk(&o, &out)
                 .unwrap_err()
                 .to_string()
                 .starts_with("the license \"MIT AND\": ")
         );
         o.license = "MIT OR Apache-2.0".to_owned();
-        let e = pack(&o, &out).unwrap_err();
+        let e = pk(&o, &out).unwrap_err();
         assert!(matches!(&e, PackError::MissingLicenseText(id) if id == "Apache-2.0"));
         assert_eq!(e.to_string(), "the license Apache-2.0 has no text");
         o.license = "NONE".to_owned();
         assert_eq!(
-            pack(&o, &out).unwrap_err().to_string(),
+            pk(&o, &out).unwrap_err().to_string(),
             "a text was given for MIT, which the license NONE doesn't name"
         );
         assert!(!out.exists());
@@ -375,18 +379,18 @@ mod packing {
         let mut o = options(&dir.path().join("root"));
         o.setuid.insert(p("/usr/bin/hello"));
         assert_eq!(
-            pack(&o, &out).unwrap_err().to_string(),
+            pk(&o, &out).unwrap_err().to_string(),
             "/usr/bin/hello: declared setuid or setgid, but the file is neither"
         );
         o.setuid = BTreeSet::from([p("/usr/bin/helper"), p("/usr/bin/missing")]);
         assert_eq!(
-            pack(&o, &out).unwrap_err().to_string(),
+            pk(&o, &out).unwrap_err().to_string(),
             "/usr/bin/missing: declared setuid or setgid, but no file in the package came from it"
         );
         // A directory came from somewhere, but isn't a setuid file.
         o.setuid = BTreeSet::from([p("/usr/share")]);
         assert_eq!(
-            pack(&o, &out).unwrap_err().to_string(),
+            pk(&o, &out).unwrap_err().to_string(),
             "/usr/share: declared setuid or setgid, but the file is neither"
         );
         // Undeclared, it is packed with a warning.
@@ -404,13 +408,13 @@ mod packing {
         root(&r, false);
         let o = options(&r);
         for out in [r.join("x.ordin"), r.join("usr/x.ordin")] {
-            let e = pack(&o, &out).unwrap_err();
+            let e = pk(&o, &out).unwrap_err();
             assert!(matches!(e, PackError::OutputInsideRoot { .. }), "{e}");
             assert!(!out.exists());
         }
         // Through a symlink to the root, too.
         symlink(&r, dir.path().join("link")).unwrap();
-        let e = pack(&o, &dir.path().join("link/x.ordin")).unwrap_err();
+        let e = pk(&o, &dir.path().join("link/x.ordin")).unwrap_err();
         assert!(
             e.to_string().ends_with(&format!(
                 "the package can't be written inside the directory it packs ({})",
@@ -419,9 +423,9 @@ mod packing {
             "{e}"
         );
         // A missing output directory or root.
-        let e = pack(&o, &dir.path().join("missing/x.ordin")).unwrap_err();
+        let e = pk(&o, &dir.path().join("missing/x.ordin")).unwrap_err();
         assert!(matches!(e, PackError::Output { .. }), "{e}");
-        let e = pack(
+        let e = pk(
             &options(&dir.path().join("nothing")),
             &dir.path().join("x.ordin"),
         )
@@ -466,7 +470,7 @@ mod packing {
         let mut o = options(&dir.path().join("root"));
         o.summary = String::new();
         let out = dir.path().join("x.ordin");
-        let e = pack(&o, &out).unwrap_err();
+        let e = pk(&o, &out).unwrap_err();
         assert!(matches!(e, PackError::Manifest(_)), "{e}");
         assert!(e.to_string().starts_with("the manifest: summary"), "{e}");
         assert!(!out.exists());
@@ -480,7 +484,7 @@ mod packing {
         fs::create_dir(&ro).unwrap();
         fs::set_permissions(&ro, Permissions::from_mode(0o555)).unwrap();
         let out = ro.join("x.ordin");
-        let e = pack(&options(&dir.path().join("root")), &out).unwrap_err();
+        let e = pk(&options(&dir.path().join("root")), &out).unwrap_err();
         fs::set_permissions(&ro, Permissions::from_mode(0o755)).unwrap();
         assert!(
             e.to_string().starts_with(&format!("{}: ", out.display())),
@@ -498,12 +502,12 @@ mod packing {
         let mut o = options(&r);
         o.setuid.clear();
         o.owners.clear();
-        let e = pack(&o, &dir.path().join("x.ordin")).unwrap_err();
+        let e = pk(&o, &dir.path().join("x.ordin")).unwrap_err();
         assert!(matches!(e, PackError::Layout(_)), "{e}");
         fs::remove_dir_all(r.join("srv")).unwrap();
         write(&r, "usr/bin/x", b"x", 0o644);
         o.owners = vec!["/usr/nothing=root:root".parse().unwrap()];
-        let e = pack(&o, &dir.path().join("x.ordin")).unwrap_err();
+        let e = pk(&o, &dir.path().join("x.ordin")).unwrap_err();
         assert!(matches!(e, PackError::Walk(_)), "{e}");
     }
 

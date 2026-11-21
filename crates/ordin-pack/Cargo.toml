@@ -12,8 +12,10 @@ publish.workspace = true
 layer = 2
 
 [dependencies]
+object.workspace = true
 ordin-archive = { path = "../ordin-archive" }
 ordin-core = { path = "../ordin-core" }
+ordin-depexpr = { path = "../ordin-depexpr" }
 ordin-manifest = { path = "../ordin-manifest" }
 ordin-tree = { path = "../ordin-tree" }
 ordin-version = { path = "../ordin-version" }
@@ -22,6 +24,8 @@ tempfile.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]
+# Writing ELF fixtures in tests.
+object = { workspace = true, features = ["write_std"] }
 proptest.workspace = true
 serde_json.workspace = true
 tar.workspace = true

@@ -16,11 +16,14 @@
 //! Later stories build on the result.
 
 mod attrs;
+pub mod elf;
 mod error;
 mod facets;
+mod infer;
 mod layout;
 mod owners;
 mod pack;
+mod shebang;
 mod source;
 mod walk;
 
@@ -29,8 +32,9 @@ pub use facets::{
     FacetError, FacetErrorKind, FacetNote, FacetOverride, FacetTree, Facets, Placement, Reason,
     classify,
 };
+pub use infer::{InferError, InferNote, Inferred, LIBRARY_DIRS, SKIPPED, infer};
 pub use layout::{Layout, LayoutError, LayoutErrorKind, LayoutOptions, normalize};
 pub use owners::OwnerOverride;
-pub use pack::{PackError, PackOptions, Packed, pack};
+pub use pack::{Output, PackError, PackOptions, Packed, default_file_name, pack};
 pub use source::RootSource;
 pub use walk::{Options, Walk, Warning, walk};

@@ -17,9 +17,11 @@ cargo-fuzz = true
 
 [dependencies]
 libfuzzer-sys = "0.4.13"
+object = { version = "0.41.0", default-features = false, features = ["read_core", "elf", "std"] }
 ordin-core = { path = "../crates/ordin-core" }
 ordin-depexpr = { path = "../crates/ordin-depexpr" }
 ordin-manifest = { path = "../crates/ordin-manifest" }
+ordin-pack = { path = "../crates/ordin-pack" }
 ordin-tree = { path = "../crates/ordin-tree" }
 ordin-version = { path = "../crates/ordin-version" }
 
@@ -40,6 +42,13 @@ bench = false
 [[bin]]
 name = "manifest_parse"
 path = "fuzz_targets/manifest_parse.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "elf_inspect"
+path = "fuzz_targets/elf_inspect.rs"
 test = false
 doc = false
 bench = false

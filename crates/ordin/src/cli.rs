@@ -49,7 +49,8 @@ pub struct PackArgs {
     /// One line about the package; its name if not given.
     #[arg(long)]
     pub summary: Option<String>,
-    /// x86_64, aarch64 or noarch; this machine's if not given.
+    /// x86_64, aarch64 or noarch; found from the package's programs and
+    /// libraries if not given, and noarch if it has none.
     #[arg(long)]
     pub arch: Option<Arch>,
     /// The file to write; NAME-VERSION.ARCH.ordin here if not given.

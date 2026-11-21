@@ -10,14 +10,18 @@ use std::path::{Path, PathBuf};
 
 use ordin_archive::{Options as WriteOptions, Package, WriteError, Written};
 use ordin_core::{Arch, Digest, Facet, FilePath, PackageName};
+use ordin_depexpr::{Expr, Requirement};
 use ordin_manifest::spdx;
-use ordin_manifest::{FacetEntry, Kind as PackageKind, License, Manifest, Presentation, State};
+use ordin_manifest::{
+    FacetEntry, Kind as PackageKind, License, Manifest, Presentation, Provide, State,
+};
 use ordin_tree::chunk::ChunkParams;
 use ordin_tree::{Kind, TreePath};
 use ordin_version::Version;
 
 use crate::error::WalkError;
 use crate::facets::{FacetError, FacetNote, classify};
+use crate::infer::{InferError, InferNote, infer};
 use crate::layout::{LayoutError, LayoutOptions, normalize};
 use crate::owners::OwnerOverride;
 use crate::source::RootSource;
@@ -32,8 +36,9 @@ pub struct PackOptions {
     pub name: PackageName,
     /// Its version, with its release.
     pub version: Version,
-    /// What it runs on.
-    pub arch: Arch,
+    /// What it runs on; detected from its programs and libraries if not
+    /// given, and `noarch` when it has none.
+    pub arch: Option<Arch>,
     /// One line about it.
     pub summary: String,
     /// Its SPDX license expression. `NOASSERTION` when nobody has said.
@@ -53,17 +58,39 @@ pub struct PackOptions {
     pub write: WriteOptions,
 }
 
+/// Where [`pack`] writes the package.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Output {
+    /// This file.
+    File(PathBuf),
+    /// [`default_file_name`] in this directory, once the architecture is
+    /// known.
+    Named(PathBuf),
+}
+
+/// The default file name: `NAME-VERSION.ARCH.ordin`. An epoch's `:`
+/// becomes `_`, which no version contains.
+#[must_use]
+pub fn default_file_name(name: &PackageName, version: &Version, arch: Arch) -> String {
+    let version = version.to_string().replace(':', "_");
+    format!("{name}-{version}.{arch}.ordin")
+}
+
 /// What [`pack`] made.
 #[derive(Clone, Debug)]
 pub struct Packed {
     /// The manifest.
     pub manifest: Manifest,
+    /// Where it was written.
+    pub out: PathBuf,
     /// The file that was written.
     pub written: Written,
     /// Setuid and setgid files nobody declared.
     pub warnings: Vec<Warning>,
     /// What the facet classification noted.
     pub notes: Vec<FacetNote>,
+    /// What inferring requirements noted.
+    pub inferred: Vec<InferNote>,
 }
 
 /// Why a package couldn't be made.
@@ -110,6 +137,19 @@ pub enum PackError {
         facet: Facet,
         /// What is wrong.
         source: Box<ordin_tree::Error>,
+    },
+    /// Requirements couldn't be inferred.
+    #[error("{0}")]
+    Infer(#[from] InferError),
+    /// The architecture given isn't the one the files are built for.
+    #[error("--arch {given} was given, but {path} is built for {found}")]
+    Arch {
+        /// The architecture given.
+        given: Arch,
+        /// The architecture found.
+        found: Arch,
+        /// The file that showed it.
+        path: TreePath,
     },
     /// The manifest breaks a rule.
     #[error("the manifest: {0}")]
@@ -219,9 +259,8 @@ fn output_dir(out: &Path) -> PathBuf {
     }
 }
 
-/// Refuses an output path inside the install root.
-fn check_output(root: &Path, out: &Path) -> Result<PathBuf, PackError> {
-    let dir = output_dir(out);
+/// Refuses an output directory inside the install root.
+fn check_output(root: &Path, dir: &Path, out: &Path) -> Result<(), PackError> {
     let root_real = root.canonicalize().map_err(|source| PackError::Root {
         path: root.to_path_buf(),
         source,
@@ -236,7 +275,22 @@ fn check_output(root: &Path, out: &Path) -> Result<PathBuf, PackError> {
             root: root.to_path_buf(),
         });
     }
-    Ok(dir)
+    Ok(())
+}
+
+/// The architecture: the one given, which must match the files, or the
+/// files', or `noarch` when there are no programs or libraries.
+fn arch(given: Option<Arch>, found: Option<&(Arch, TreePath)>) -> Result<Arch, PackError> {
+    match (given, found) {
+        (Some(given), Some((found, path))) if given != *found => Err(PackError::Arch {
+            given,
+            found: *found,
+            path: path.clone(),
+        }),
+        (Some(given), _) => Ok(given),
+        (None, Some((found, _))) => Ok(*found),
+        (None, None) => Ok(Arch::Noarch),
+    }
 }
 
 /// Packs `options.root` and writes the package to `out`.
@@ -252,8 +306,16 @@ fn check_output(root: &Path, out: &Path) -> Result<PathBuf, PackError> {
 /// writer refuses, a license that isn't an SPDX expression or whose texts
 /// don't match it, a declared setuid file that isn't one, an output path
 /// inside the install root, and any I/O error writing the output.
-pub fn pack(options: &PackOptions, out: &Path) -> Result<Packed, PackError> {
-    let dir = check_output(&options.root, out)?;
+pub fn pack(options: &PackOptions, out: &Output) -> Result<Packed, PackError> {
+    let dir = match out {
+        Output::File(file) => output_dir(file),
+        Output::Named(dir) => dir.clone(),
+    };
+    let shown = match out {
+        Output::File(file) => file.clone(),
+        Output::Named(dir) => dir.clone(),
+    };
+    check_output(&options.root, &dir, &shown)?;
     let license = license(options)?;
     let walked = walk(
         &options.root,
@@ -270,6 +332,27 @@ pub fn pack(options: &PackOptions, out: &Path) -> Result<Packed, PackError> {
         },
     )?;
     let setuid = setuid(&options.setuid, &layout)?;
+    let mut source = RootSource::new(&options.root, layout.origins.clone()).map_err(|source| {
+        PackError::Root {
+            path: options.root.clone(),
+            source,
+        }
+    })?;
+    let inferred = infer(&layout.tree, &mut source)?;
+    let arch = arch(options.arch, inferred.arch.as_ref())?;
+    let out = match out {
+        Output::File(file) => file.clone(),
+        Output::Named(dir) => {
+            let name = default_file_name(&options.name, &options.version, arch);
+            // The current directory is shown as the bare name.
+            if dir == Path::new(".") {
+                PathBuf::from(name)
+            } else {
+                dir.join(name)
+            }
+        }
+    };
+    let out = out.as_path();
     let classified = classify(&layout.tree, &[])?;
     let mut facets = BTreeMap::new();
     let mut trees = BTreeMap::new();
@@ -292,11 +375,24 @@ pub fn pack(options: &PackOptions, out: &Path) -> Result<Packed, PackError> {
         options.name.clone(),
         options.version.clone(),
         PackageKind::Base,
-        options.arch,
+        arch,
         options.summary.clone(),
         license,
         facets,
     );
+    manifest.requires = inferred
+        .requires
+        .iter()
+        .map(|atom| Expr::Req(Requirement::new(atom.clone())))
+        .collect();
+    manifest.provides = inferred
+        .provides
+        .iter()
+        .map(|atom| Provide {
+            atom: atom.clone(),
+            version: None,
+        })
+        .collect();
     manifest.declares.config = layout.config.clone();
     manifest.declares.setuid = setuid;
     if !(layout.state_paths.is_empty() && layout.state_files.is_empty() && layout.seeds.is_empty())
@@ -313,12 +409,6 @@ pub fn pack(options: &PackOptions, out: &Path) -> Result<Packed, PackError> {
     }
     manifest.to_canonical_bytes()?;
 
-    let mut source = RootSource::new(&options.root, layout.origins.clone()).map_err(|source| {
-        PackError::Root {
-            path: options.root.clone(),
-            source,
-        }
-    })?;
     let output = |source| PackError::Output {
         path: out.to_path_buf(),
         source,
@@ -349,15 +439,46 @@ pub fn pack(options: &PackOptions, out: &Path) -> Result<Packed, PackError> {
         .map_err(output)?;
     Ok(Packed {
         manifest,
+        out: out.to_path_buf(),
         written,
         warnings: walked.warnings,
         notes: classified.notes,
+        inferred: inferred.notes,
     })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_default_file_name_names_the_package() {
+        let name: PackageName = "hello".parse().unwrap();
+        let v: Version = "1:2.12-1".parse().unwrap();
+        assert_eq!(
+            default_file_name(&name, &v, Arch::Noarch),
+            "hello-1_2.12-1.noarch.ordin"
+        );
+    }
+
+    #[test]
+    fn the_architecture_is_given_found_or_noarch() {
+        let p: TreePath = "/usr/bin/x".parse().unwrap();
+        let found = (Arch::Aarch64, p.clone());
+        assert_eq!(arch(None, None).unwrap(), Arch::Noarch);
+        assert_eq!(arch(None, Some(&found)).unwrap(), Arch::Aarch64);
+        assert_eq!(arch(Some(Arch::X86_64), None).unwrap(), Arch::X86_64);
+        assert_eq!(
+            arch(Some(Arch::Aarch64), Some(&found)).unwrap(),
+            Arch::Aarch64
+        );
+        for given in [Arch::X86_64, Arch::Noarch] {
+            assert_eq!(
+                arch(Some(given), Some(&found)).unwrap_err().to_string(),
+                format!("--arch {given} was given, but /usr/bin/x is built for aarch64")
+            );
+        }
+    }
 
     #[test]
     fn a_bare_file_name_is_written_in_the_current_directory() {

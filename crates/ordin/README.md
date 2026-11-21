@@ -17,7 +17,7 @@ Makes a package from an install root (rung 0): what `make install DESTDIR=DIR` f
 | `--license EXPR` | `NOASSERTION`, with a warning | An SPDX license expression |
 | `--license-file ID=PATH` | | The text of one license ID in `--license`. Repeat it for each ID. Every ID needs one, except for `NOASSERTION` and `NONE`. A text is at most 1 MiB. |
 | `--summary TEXT` | the name, with a warning | One line about the package |
-| `--arch ARCH` | this machine's, with a warning | `x86_64`, `aarch64` or `noarch` |
+| `--arch ARCH` | found from the package's programs and libraries, and `noarch` if it has none | `x86_64`, `aarch64` or `noarch`. It must match the programs and libraries. |
 | `-o`, `--out FILE` | `NAME-VERSION.ARCH.ordin` here | The file to write. An epoch's `:` becomes `_`. An existing file is replaced. |
 | `--owner PATH=USER:GROUP` | `root:root` | The owner of a path in `DIR` and everything below it. Repeatable. |
 | `--setuid PATH` | | A file in `DIR` that is setuid or setgid on purpose. Repeatable. |
@@ -28,7 +28,9 @@ Paths in `--owner`, `--setuid` and `--prefix` are paths in `DIR`, with or withou
 
 **What it prints.** It prints the file written, the package's identity and the facets with their sizes.
 - Warnings go to standard error, for example for a default that was used, or a setuid file nobody declared.
-- With `--json`, it prints one canonical JSON object instead. Its fields are `arch`, `facets` (each with `size` and `tree`), `file`, `image`, `license`, `name`, `package`, `size`, `version` and `warnings`.
+- With `--json`, it prints one canonical JSON object instead. Its fields are `arch`, `facets` (each with `size` and `tree`), `file`, `image`, `license`, `name`, `package`, `provides`, `requires`, `size`, `version` and `warnings`.
+
+**Requirements are inferred.** Shared-library requirements and provides come from the ELF files, with symbol versions, and interpreters from `#!` lines. `ordin-pack`'s README has the rules. What can't be inferred safely is a warning, never a guess.
 - With `--json`, an error is printed as `{"error": "..."}`, and nothing goes to standard error.
 
 ## Exit codes
