@@ -113,10 +113,14 @@ fn dist_checks_the_tag_and_timestamp_before_building() {
         .unwrap();
     assert_eq!(out.status.code(), Some(1));
     let stderr = String::from_utf8_lossy(&out.stderr);
+    // Until ORD-006 ships their license notices, the third-party crates
+    // `ordin` links stop dist before it looks at the timestamp. The
+    // timestamp check is tested on a model workspace in tests/release.
     assert!(
-        stderr.starts_with("dist: SOURCE_DATE_EPOCH isn't set"),
+        stderr.starts_with("dist: the programs link third-party crates ("),
         "{stderr}"
     );
+    assert!(stderr.contains(" clap, "), "{stderr}");
 }
 
 #[test]

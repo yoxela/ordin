@@ -12,15 +12,20 @@ publish.workspace = true
 layer = 2
 
 [dependencies]
+ordin-archive = { path = "../ordin-archive" }
 ordin-core = { path = "../ordin-core" }
 ordin-manifest = { path = "../ordin-manifest" }
 ordin-tree = { path = "../ordin-tree" }
+ordin-version = { path = "../ordin-version" }
 rustix.workspace = true
+tempfile.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]
 proptest.workspace = true
-tempfile.workspace = true
+serde_json.workspace = true
+tar.workspace = true
+zstd.workspace = true
 
 [lints]
 workspace = true

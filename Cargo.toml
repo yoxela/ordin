@@ -44,6 +44,10 @@ zstd = { version = "0.14.4", default-features = false }
 # Anonymous temporary files: spooling chunk packs while a .ordin file is
 # written (ORD-130), and test fixtures.
 tempfile = "3.27.0"
+# The command line (ORD-120): argument parsing without color or terminal
+# detection, and errors with context in binaries only.
+clap = { version = "4.6.9", default-features = false, features = ["std", "derive", "help", "usage", "error-context", "suggestions"] }
+anyhow = "1.0.104"
 # Tests only: reading tar archives as a second opinion on Ordin's own writer.
 tar = { version = "0.4.46", default-features = false }
 

@@ -642,15 +642,25 @@ impl Decoder {
             Some(Presentation::Informational)
         )
         .unwrap_or(Presentation::Informational);
-        let (texts_value, tp) = o.req(self, "texts")?;
+        let ids = parsed.text_ids();
         let mut texts = BTreeMap::new();
-        for (id, value) in map(texts_value, &tp)? {
-            texts.insert(id.clone(), digest(value, &tp.entry(id), false)?);
-        }
+        // NOASSERTION and NONE have no texts, and an empty object is
+        // refused, so `texts` is then left out.
+        let texts_path = if ids.is_empty() {
+            if let Some((_, tp)) = o.opt(self, "texts") {
+                return rule(&tp, format!("{parsed} has no license texts"));
+            }
+            None
+        } else {
+            let (texts_value, tp) = o.req(self, "texts")?;
+            for (id, value) in map(texts_value, &tp)? {
+                texts.insert(id.clone(), digest(value, &tp.entry(id), false)?);
+            }
+            Some(tp)
+        };
         o.finish(self)?;
-        let ids = parsed.ids();
         let keys: BTreeSet<String> = texts.keys().cloned().collect();
-        if ids != keys {
+        if let Some(tp) = texts_path.filter(|_| ids != keys) {
             let missing: Vec<&String> = ids.difference(&keys).collect();
             let extra: Vec<&String> = keys.difference(&ids).collect();
             return rule(

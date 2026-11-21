@@ -35,6 +35,16 @@ All notable changes to Ordin are recorded here. The format follows [Keep a Chang
   - `cargo xtask release-sign` (`make release-sign TAG=…`) verifies the tag against the maintainer's own signers file, checks the draft's files, checksums and provenance, rebuilds the tag and requires every file to match, signs each file with the SSH release key, asks, uploads the signatures, checks the draft again and publishes it.
   - `release/allowed_signers` holds the public keys: one for tags (namespace `git`) and one for release files (namespace `ordin-release`). The README says how to verify a release.
   - CI runs `shellcheck` on the release scripts.
+- ORD-120: `ordin pack`, rung 0 on the command line.
+  - `ordin pack DIR --name N --version V` makes a package with only those flags.
+    - Optional flags: `--release` (1), `--license` (`NOASSERTION`, with a warning), `--license-file ID=PATH`, `--summary` (the name, with a warning), `--arch` (this machine's, with a warning), `--out` (`NAME-VERSION.ARCH.ordin`), `--owner`, `--setuid`, `--prefix` and `--json`.
+    - Exit codes: 0 on success, 1 when the package can't be made, 2 for a wrong command line.
+  - `ordin-pack`'s `pack` runs the whole pipeline: walk, layout, facets, manifest, then the `.ordin` file. Config, state, seeds and declared setuid files go into the manifest, and every facet except `debug` is installed by default.
+  - The output is written atomically, and a failed write leaves the old file in place. An output inside the install root is refused.
+  - `RootSource` reads each file again from where the layout found it. It opens one name at a time without following symlinks, and reads only regular files on the root's mount.
+  - Manifest format: `NOASSERTION` and `NONE` stand alone in a license expression and have no texts, so `texts` is left out for them (`SCHEMA.md`). `Manifest::new` builds a manifest in code, and `ordin_manifest::spdx` is public.
+  - `Layout` gains `origins`: where each entry of the normalized tree was in the install root.
+  - New dependencies for the `ordin` program: `clap` (without color or terminal detection) and `anyhow`.
 - ORD-130: writing `.ordin` files, in `ordin-archive`.
   - `write` writes a package as an OCI artifact (`artifactType` `application/vnd.ordin.package.v1`, the empty config) in a ustar archive. The format is in `FORMAT.md`.
   - The layers come in a fixed order: the manifest, the license texts, one tree per facet, the chunk index, then per facet a pack table and a chunk pack. Media types are `application/vnd.ordin.<part>.v1`, every descriptor carries its blob's BLAKE3 digest in `com.ordinpm.blake3`, and per-facet parts carry `com.ordinpm.facet`.

@@ -70,6 +70,9 @@ pub struct Layout {
     pub state_files: Vec<StateFile>,
     /// Files copied once if missing, sorted by path.
     pub seeds: Vec<Seed>,
+    /// Where each entry of the tree was in the install root, by its path
+    /// in the tree. Directories added above entries have none.
+    pub origins: BTreeMap<TreePath, TreePath>,
 }
 
 /// A path that doesn't fit Ordin's layout, and why.
@@ -401,7 +404,12 @@ impl Building {
     fn finish(mut self) -> Result<Layout, LayoutError> {
         let mut entries = Vec::with_capacity(self.entries.len());
         let mut parents = BTreeSet::new();
+        let mut origins = BTreeMap::new();
         for (destination, (source, kind)) in std::mem::take(&mut self.entries) {
+            // Every source is a path of the walked tree.
+            if let Ok(origin) = source.parse() {
+                origins.insert(destination.clone(), origin);
+            }
             let kind = match kind {
                 Kind::HardLink(target) => {
                     let moved = self.moved.get(target.as_str()).ok_or_else(|| {
@@ -450,6 +458,7 @@ impl Building {
             state_paths: self.state_paths,
             state_files: self.state_files,
             seeds: self.seeds,
+            origins,
         })
     }
 }

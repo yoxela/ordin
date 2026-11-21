@@ -142,6 +142,37 @@ mod layout {
     }
 
     #[test]
+    fn each_entry_records_where_it_was() {
+        let l = layout(vec![
+            file("/bin/x", 1),
+            file("/usr/bin/y", 1),
+            file("/etc/nginx.conf", 1),
+            file("/var/lib/nginx/seed", 3),
+            file("/var/lib/nginx/empty", 0),
+        ]);
+        let origin = |path: &str| l.origins.get(&p(path)).map(TreePath::as_str);
+        assert_eq!(origin("/usr/bin/x"), Some("/bin/x"));
+        assert_eq!(origin("/usr/bin/y"), Some("/usr/bin/y"));
+        assert_eq!(
+            origin("/usr/share/ordin/defaults/nginx/nginx.conf"),
+            Some("/etc/nginx.conf")
+        );
+        assert_eq!(
+            origin("/usr/share/ordin/seeds/nginx/var/lib/nginx/seed"),
+            Some("/var/lib/nginx/seed")
+        );
+        // Directories added above entries came from nowhere.
+        assert_eq!(origin("/usr/share/ordin"), None);
+        // Every origin is an entry of the tree, and nothing else is.
+        assert!(
+            l.origins
+                .keys()
+                .all(|path| l.tree.get(path.as_str()).is_some())
+        );
+        assert!(l.tree.get("/var/lib/nginx/empty").is_none());
+    }
+
+    #[test]
     fn usr_stays_where_it_is() {
         let input = tree(vec![
             dir_as("/usr/lib/nginx", "0750", "www", "adm"),
