@@ -52,6 +52,13 @@ doc = false
 bench = false
 
 [[bin]]
+name = "chunk_index_parse"
+path = "fuzz_targets/chunk_index_parse.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
 name = "tree_parse"
 path = "fuzz_targets/tree_parse.rs"
 test = false
