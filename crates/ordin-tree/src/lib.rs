@@ -26,8 +26,12 @@
 //!
 //! [`file_digests`] and [`FileHasher`] compute the digests a file entry
 //! records, in one pass over bytes the caller supplies.
+//!
+//! [`chunk`] cuts files into content-defined chunks for transport and
+//! records them in a chunk index.
 
 mod caps;
+pub mod chunk;
 mod decode;
 mod digests;
 mod encode;
@@ -61,7 +65,7 @@ pub struct Tree {
 }
 
 /// The first byte where `a` and `b` differ.
-fn first_difference(a: &[u8], b: &[u8]) -> usize {
+pub(crate) fn first_difference(a: &[u8], b: &[u8]) -> usize {
     a.iter()
         .zip(b)
         .position(|(x, y)| x != y)

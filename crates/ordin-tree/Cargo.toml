@@ -19,6 +19,9 @@ thiserror.workspace = true
 [dev-dependencies]
 proptest.workspace = true
 serde_json.workspace = true
+# Cross-checks Ordin's own FastCDC against the crate ORD-100 measured with.
+# Tests only: a crate update must never change Ordin's cut points.
+fastcdc = { version = "=3.2.1", default-features = false }
 
 [lints]
 workspace = true

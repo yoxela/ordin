@@ -1,6 +1,6 @@
 # ordin-tree
 
-Trees: one facet's file list in a single canonical, hashable form. Layer 0 (pure core), licensed MIT OR Apache-2.0. Later stories add the chunk index and the content-defined chunker here.
+Trees: one facet's file list in a single canonical, hashable form, and the content-defined chunks that carry files between machines. Layer 0 (pure core), licensed MIT OR Apache-2.0.
 
 [`FORMAT.md`](FORMAT.md) is the reference for every field and rule (CC-BY-4.0).
 
@@ -13,3 +13,12 @@ An entry is a file, a directory, a symlink or a hard link; device nodes, sockets
 ## File digests
 
 `file_digests` reads any `Read` once and returns what a file entry records about the content: its size, its BLAKE3 digest and its fs-verity digest (SHA-256, 4 KiB blocks, no salt, the value `fsverity digest` prints and the kernel measures). `FileHasher` does the same for bytes given piece by piece. Neither opens a file; the caller supplies the bytes.
+
+## Chunks and the chunk index
+
+[`CHUNK-INDEX.md`](CHUNK-INDEX.md) is the reference for the index and the chunker (CC-BY-4.0).
+
+- `chunk::chunk_file` reads any `Read` once and cuts it with FastCDC 2020. It returns the file's digests and its chunks, and hands each chunk's bytes to a callback as soon as the chunk is known. Memory stays at one buffer of the maximum chunk length. A file under the whole-file threshold is one chunk.
+- `chunk::ChunkParams::DEFAULT` holds the settings ORD-100 measured: chunks of 256 KiB to 4 MiB, 1 MiB on average, normalization level 1, and files under 1 MiB kept whole.
+- `chunk::ChunkIndex` records the settings and lists every file at or above the threshold, with its chunks' digests and lengths. It is canonical JSON with a BLAKE3 identity, read as strictly as a tree. `ChunkIndex::chunks_of` tells a reader which chunks make up a file a tree records.
+- The cut points match the `fastcdc` crate's, version 3.2.1. The tests check this, and the crate is only a test dependency.
