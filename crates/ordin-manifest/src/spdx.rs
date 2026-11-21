@@ -17,12 +17,21 @@
 //!
 //! Operators are uppercase. The canonical text uses single spaces and
 //! only the parentheses the tree needs.
+//!
+//! `NOASSERTION` (nobody has said what the license is) and `NONE` (there
+//! is none) are SPDX's two values that aren't licenses. Each is a whole
+//! expression on its own, never combined, with `+` or with `WITH`, and
+//! has no license text.
 
 use std::collections::BTreeSet;
 use std::fmt;
 
 /// The longest expression, in bytes.
 pub const MAX_LEN: usize = 1024;
+
+/// The values that aren't licenses and have no text: `NOASSERTION` and
+/// `NONE`.
+pub const NO_LICENSE: [&str; 2] = ["NOASSERTION", "NONE"];
 const MAX_DEPTH: usize = 16;
 
 /// A parsed SPDX expression.
@@ -50,6 +59,26 @@ impl Spdx {
         let mut out = BTreeSet::new();
         self.collect(&mut out);
         out
+    }
+
+    /// The IDs that need a license text: every ID, unless the expression
+    /// is `NOASSERTION` or `NONE`, which need none.
+    #[must_use]
+    pub fn text_ids(&self) -> BTreeSet<String> {
+        if self.is_no_license() {
+            return BTreeSet::new();
+        }
+        self.ids()
+    }
+
+    /// Whether the expression is `NOASSERTION` or `NONE`.
+    #[must_use]
+    pub fn is_no_license(&self) -> bool {
+        matches!(
+            self,
+            Self::License { id, or_later: false, exception: None }
+                if NO_LICENSE.contains(&id.as_str())
+        )
     }
 
     fn collect(&self, out: &mut BTreeSet<String>) {
@@ -124,6 +153,16 @@ pub fn parse(text: &str) -> Result<Spdx, String> {
     let expr = p.or()?;
     if let Some(t) = p.peek() {
         return Err(format!("unexpected {t:?} in the SPDX expression"));
+    }
+    if !expr.is_no_license()
+        && let Some(id) = expr
+            .ids()
+            .into_iter()
+            .find(|id| NO_LICENSE.contains(&id.as_str()))
+    {
+        return Err(format!(
+            "{id} stands alone: it can't be combined, or take + or WITH"
+        ));
     }
     Ok(expr)
 }
@@ -273,6 +312,34 @@ mod tests {
         assert_eq!(canonical("( MIT )"), "MIT");
         assert_eq!(canonical("MIT  OR  Apache-2.0"), "MIT OR Apache-2.0");
         assert_eq!(canonical("(MIT AND ISC) OR Zlib"), "MIT AND ISC OR Zlib");
+    }
+
+    #[test]
+    fn noassertion_and_none_stand_alone() {
+        for value in NO_LICENSE {
+            let e = parse(value).unwrap();
+            assert!(e.is_no_license());
+            assert!(e.text_ids().is_empty());
+            assert_eq!(e.ids().len(), 1);
+            assert_eq!(e.to_string(), value);
+        }
+        assert_eq!(
+            parse("MIT OR NONE").unwrap_err(),
+            "NONE stands alone: it can't be combined, or take + or WITH"
+        );
+        for text in [
+            "NOASSERTION+",
+            "NONE WITH x",
+            "x WITH NOASSERTION",
+            "(MIT AND NONE)",
+        ] {
+            assert!(parse(text).unwrap_err().contains("stands alone"), "{text}");
+        }
+        let mit = parse("MIT").unwrap();
+        assert!(!mit.is_no_license());
+        assert_eq!(mit.text_ids(), mit.ids());
+        // Only the exact IDs: a LicenseRef that starts with one is a license.
+        assert!(!parse("NONE-1").unwrap().is_no_license());
     }
 
     #[test]

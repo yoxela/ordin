@@ -15,5 +15,19 @@ layer = 3
 name = "ordin"
 path = "src/main.rs"
 
+[dependencies]
+anyhow.workspace = true
+clap.workspace = true
+ordin-archive = { path = "../ordin-archive" }
+ordin-core = { path = "../ordin-core" }
+ordin-manifest = { path = "../ordin-manifest" }
+ordin-pack = { path = "../ordin-pack" }
+ordin-tree = { path = "../ordin-tree" }
+ordin-version = { path = "../ordin-version" }
+
+[dev-dependencies]
+serde_json.workspace = true
+tempfile.workspace = true
+
 [lints]
 workspace = true

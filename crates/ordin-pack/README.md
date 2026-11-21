@@ -46,3 +46,33 @@ Missing directories above a moved path are added as `root:root 0755`, and hard l
 - **Each facet's tree** holds the directories above its entries, with their metadata, and the bytes of file content it carries. `runtime` is always there, even when empty.
 - **A hard link** whose file lands in another facet becomes a copy of the file. The content is the same object, so it takes no more space, and a note says so.
 - **`placements`** lists every path with its facet and the reason, for `ordin show --facets`.
+
+`normalize` also returns `origins`: where each entry of the new tree was in the install root.
+
+## Packing
+
+`pack(&options, out)` is rung 0 in one call: an install root becomes a `.ordin` file.
+
+**The steps:**
+1. walk the install root
+2. normalize the layout
+3. classify facets
+4. build the manifest
+5. write the file with `ordin-archive`
+
+**What goes into the manifest:**
+- **Facets:** every facet is installed by default, except `debug`.
+- **Config, state and seeds** come from the layout.
+- **Setuid files:** each path in `options.setuid` becomes a `setuid` declaration at the place the layout moved it to. A declared path must be a setuid or setgid file in the package.
+
+**Licenses:** `options.license` is an SPDX expression, and every ID in it needs a text in `options.license_texts`. `NOASSERTION` and `NONE` need none.
+
+**Reading the files again:** `RootSource` reads each file from where it was in the install root, and trusts nothing about the root since the walk:
+- Each name is opened relative to its parent, without following symlinks.
+- Only regular files on the root's own mount are read, without blocking.
+- The writer checks every file against its tree.
+
+**Writing the output:**
+- The file goes to a temporary file beside `out`, which is synced, made mode 0644 and renamed over `out`. Then the directory is synced, so `out` is always either the old file or the complete new one.
+- A failed write leaves `out` as it was, and no temporary file behind.
+- An output inside the install root is refused, through symlinks too, so an old package can never be packed into the next one.

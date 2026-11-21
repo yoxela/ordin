@@ -125,7 +125,13 @@ An update's facet trees carry only the files that changed or were added since th
 | --- | --- | --- | --- | --- |
 | `spdx` | string | yes | | An SPDX license expression |
 | `presentation` | string | no | `informational` | `informational`, `display` or `accept` |
-| `texts` | object | yes | | Each license ID in `spdx` (SPDX IDs and `LicenseRef-` IDs) mapped to the *digest* of its text, which the `.ordin` file carries. Texts are metadata, never doc files |
+| `texts` | object | yes, except for `NOASSERTION` and `NONE` | | Each license ID in `spdx` (SPDX IDs and `LicenseRef-` IDs) mapped to the *digest* of its text, which the `.ordin` file carries. Texts are metadata, never doc files |
+
+**`NOASSERTION` and `NONE`** are SPDX's two values that aren't licenses:
+- `NOASSERTION` means nobody has said what the license is. `ordin pack` writes it when no license is given.
+- `NONE` means there is no license.
+
+Each is a whole expression on its own: it is refused when combined with `AND` or `OR`, or written with `+` or `WITH`. Neither has a text, so `texts` must be left out. An empty object is refused, like every empty object.
 
 ## Source and provenance
 

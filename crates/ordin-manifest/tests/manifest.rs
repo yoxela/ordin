@@ -1166,3 +1166,79 @@ fn the_reader_never_panics_on_damaged_bytes() {
         }
     }
 }
+
+#[test]
+fn noassertion_and_none_stand_alone_without_texts() -> R<()> {
+    for value in ["NOASSERTION", "NONE"] {
+        let text = edit(
+            MINIMAL,
+            "/license",
+            Some(&format!(r#"{{"spdx":"{value}"}}"#)),
+        )?;
+        let m = Manifest::from_json(&text)?;
+        assert_eq!(m.license.spdx, value);
+        assert!(m.license.texts.is_empty());
+        let bytes = m.to_canonical_bytes()?;
+        let shown = String::from_utf8(bytes.clone())?;
+        assert!(shown.contains(&format!(r#""license":{{"spdx":"{value}"}}"#)));
+        assert_eq!(Manifest::from_signed_bytes(&bytes)?.0, m);
+
+        // Any text is refused, and so is an empty object.
+        let with = edit(
+            MINIMAL,
+            "/license",
+            Some(&format!(
+                r#"{{"spdx":"{value}","texts":{{"{value}":"blake3:{}"}}}}"#,
+                "b".repeat(64)
+            )),
+        )?;
+        refused(
+            &with,
+            "license.texts",
+            &format!("{value} has no license texts"),
+        )?;
+        let empty = edit(
+            MINIMAL,
+            "/license",
+            Some(&format!(r#"{{"spdx":"{value}","texts":{{}}}}"#)),
+        )?;
+        refused(&empty, "license.texts", "has no license texts")?;
+    }
+    // Combined, with + or WITH, they are refused.
+    for spdx in [
+        "MIT AND NONE",
+        "NOASSERTION OR MIT",
+        "NONE+",
+        "NOASSERTION WITH Classpath-exception-2.0",
+        "MIT WITH NONE",
+        "(NONE)",
+    ] {
+        let text = edit(MINIMAL, "/license/spdx", Some(&format!("\"{spdx}\"")))?;
+        if spdx == "(NONE)" {
+            refused(&text, "license.spdx", "canonical")?;
+        } else {
+            refused(&text, "license.spdx", "stands alone")?;
+        }
+    }
+    // Other licenses still need their texts.
+    let text = edit(MINIMAL, "/license/texts", None)?;
+    refused(&text, "license", "the field \"texts\" is required")?;
+    Ok(())
+}
+
+#[test]
+fn a_manifest_built_in_code_equals_the_one_read() -> R<()> {
+    let read = Manifest::from_json(MINIMAL)?;
+    let built = Manifest::new(
+        read.name.clone(),
+        read.version.clone(),
+        read.kind,
+        read.arch,
+        read.summary.clone(),
+        read.license.clone(),
+        read.facets.clone(),
+    );
+    assert_eq!(built, read);
+    assert_eq!(built.to_canonical_bytes()?, read.to_canonical_bytes()?);
+    Ok(())
+}

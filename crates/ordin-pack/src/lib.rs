@@ -20,6 +20,8 @@ mod error;
 mod facets;
 mod layout;
 mod owners;
+mod pack;
+mod source;
 mod walk;
 
 pub use error::{WalkError, WalkErrorKind};
@@ -29,4 +31,6 @@ pub use facets::{
 };
 pub use layout::{Layout, LayoutError, LayoutErrorKind, LayoutOptions, normalize};
 pub use owners::OwnerOverride;
+pub use pack::{PackError, PackOptions, Packed, pack};
+pub use source::RootSource;
 pub use walk::{Options, Walk, Warning, walk};

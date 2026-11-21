@@ -29,7 +29,7 @@ mod error;
 pub use ordin_core::json;
 mod known;
 mod model;
-mod spdx;
+pub mod spdx;
 mod text;
 
 use ordin_core::Digest;
@@ -77,6 +77,59 @@ fn same_encoding(read: &str, encoded: &str) -> Result<(), Error> {
 }
 
 impl Manifest {
+    /// A manifest with the required fields and every other one at its
+    /// default. Fields are public, so the rest can be set afterwards;
+    /// [`to_canonical_bytes`](Self::to_canonical_bytes) checks them all.
+    #[must_use]
+    pub fn new(
+        name: ordin_core::PackageName,
+        version: ordin_version::Version,
+        kind: Kind,
+        arch: ordin_core::Arch,
+        summary: String,
+        license: License,
+        facets: std::collections::BTreeMap<ordin_core::Facet, FacetEntry>,
+    ) -> Self {
+        Self {
+            name,
+            version,
+            kind,
+            arch,
+            summary,
+            description: None,
+            homepage: None,
+            license,
+            source: None,
+            provenance: None,
+            facets,
+            provides: Vec::new(),
+            requires: Vec::new(),
+            conflicts: Vec::new(),
+            recommends: Vec::new(),
+            supplements: Vec::new(),
+            requires_apply: Vec::new(),
+            requires_boot: Vec::new(),
+            obsoletes: Vec::new(),
+            replaces: Vec::new(),
+            removes: std::collections::BTreeMap::new(),
+            declares: Declares::default(),
+            state: None,
+            settings: Vec::new(),
+            hooks: std::collections::BTreeMap::new(),
+            tests: Vec::new(),
+            security: None,
+            delegated: None,
+            live_apply: false,
+            boot_critical: false,
+            support: None,
+            abi: std::collections::BTreeMap::new(),
+            fixes: Vec::new(),
+            notices: Vec::new(),
+            ignorable: Vec::new(),
+            ignored: Vec::new(),
+        }
+    }
+
     /// Reads a signed manifest: the bytes must be canonical JSON already.
     /// Returns the manifest and its identity.
     ///
