@@ -10,16 +10,23 @@
 //!   and digests.
 //! - [`normalize`] maps that tree into Ordin's layout: everything under
 //!   `/usr`, with `etc/` as config defaults and `var/` as state.
+//! - [`classify`] splits the normalized tree into facets by path rules and
+//!   the recipe's overrides.
 //!
 //! Later stories build on the result.
 
 mod attrs;
 mod error;
+mod facets;
 mod layout;
 mod owners;
 mod walk;
 
 pub use error::{WalkError, WalkErrorKind};
+pub use facets::{
+    FacetError, FacetErrorKind, FacetNote, FacetOverride, FacetTree, Facets, Placement, Reason,
+    classify,
+};
 pub use layout::{Layout, LayoutError, LayoutErrorKind, LayoutOptions, normalize};
 pub use owners::OwnerOverride;
 pub use walk::{Options, Walk, Warning, walk};

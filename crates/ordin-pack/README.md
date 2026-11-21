@@ -31,3 +31,18 @@ The directory isn't trusted. Each name is opened relative to its parent without 
   - two paths that move to the same place, unless they are identical directories
 
 Missing directories above a moved path are added as `root:root 0755`, and hard links follow their files.
+
+## Classifying facets
+
+`classify(&tree, &overrides)` splits a normalized tree into facets, so an admin chooses what to install and a packager never splits `-dev` or `-doc` packages by hand. Each path goes to the facet of the first rule that matches:
+
+1. under `/usr/lib/debug`: `debug`
+2. under `/usr/share/doc`, `/usr/share/man` or `/usr/share/info`: `doc`
+3. under a directory `/usr/share/locale/<ll>/`: `locale:<ll>`. A name a facet can't hold stays in `runtime`, with a note.
+4. under `/usr/include`, a file or link whose name ends in `.a`, or a `.pc` file in a `pkgconfig` directory: `dev`
+5. everything else: `runtime`
+
+- **Overrides** come from the recipe (rung 1). One moves a path and everything below it, the most specific one wins, and one that matches nothing is an error.
+- **Each facet's tree** holds the directories above its entries, with their metadata, and the bytes of file content it carries. `runtime` is always there, even when empty.
+- **A hard link** whose file lands in another facet becomes a copy of the file. The content is the same object, so it takes no more space, and a note says so.
+- **`placements`** lists every path with its facet and the reason, for `ordin show --facets`.
