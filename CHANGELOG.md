@@ -35,6 +35,14 @@ All notable changes to Ordin are recorded here. The format follows [Keep a Chang
   - `cargo xtask release-sign` (`make release-sign TAG=…`) verifies the tag against the maintainer's own signers file, checks the draft's files, checksums and provenance, rebuilds the tag and requires every file to match, signs each file with the SSH release key, asks, uploads the signatures, checks the draft again and publishes it.
   - `release/allowed_signers` holds the public keys: one for tags (namespace `git`) and one for release files (namespace `ordin-release`). The README says how to verify a release.
   - CI runs `shellcheck` on the release scripts.
+- ORD-112 and ORD-113: requirements, provides and the architecture inferred from a package's files, in `ordin-pack`.
+  - ELF files: each needed library becomes `so:` requirements, one per symbol version needed, or the bare soname when none is. Weak needs are skipped, and private versions (`GLIBC_PRIVATE`) are left out with a warning.
+  - A library in `/usr/lib`, `/usr/lib64` or `/usr/lib/<triplet>` provides its soname and each version it defines. A requirement the package meets itself is dropped.
+  - The architecture comes from the programs and libraries, `noarch` when there are none. Mixed architectures, 32-bit or other machines, and an `--arch` that contradicts the files are errors.
+  - `#!` lines of executable files become `file:` requirements on the interpreter, through `env` too, with `/bin` read as `/usr/bin`. Unusual lines are warnings, never guesses.
+  - `elf::inspect` reads ELF files with `object` (0.41, the ELF reader only), with limits on every count, and has a new fuzz target, `elf_inspect`. Debug files and documentation aren't read.
+  - `ordin pack` no longer defaults `--arch` to the machine's, and its `--json` output gains `requires` and `provides`.
+  - Embedded build information (`.note.package`, Go build info, `cargo auditable`) is left for the SBOM, which the manifest's `provenance` points at.
 - ORD-006: third-party license notices in the release archives.
   - Each archive carries `THIRD-PARTY-NOTICES.txt`. It lists every third-party crate the programs link for that target, followed by each crate's license files, verbatim.
     - A crate counts when a program reaches it through normal dependencies on that target, as `cargo metadata --filter-platform` resolves them. Build and dev dependencies, and proc-macro crates with what only they use, never reach a binary and are left out.

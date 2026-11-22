@@ -44,6 +44,10 @@ zstd = { version = "0.14.4", default-features = false }
 # Anonymous temporary files: spooling chunk packs while a .ordin file is
 # written (ORD-130), and test fixtures.
 tempfile = "3.27.0"
+# Reading ELF files for requirements and provides (ORD-112), behind
+# ordin-pack's elf module. Only the ELF reader: no other formats, no
+# decompression. ordind may never link it (ORDIND_DENYLIST).
+object = { version = "0.41.0", default-features = false, features = ["read_core", "elf", "std"] }
 # The command line (ORD-120): argument parsing without color or terminal
 # detection, and errors with context in binaries only.
 clap = { version = "4.6.9", default-features = false, features = ["std", "derive", "help", "usage", "error-context", "suggestions"] }

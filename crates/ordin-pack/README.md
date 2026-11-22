@@ -49,6 +49,30 @@ Missing directories above a moved path are added as `root:root 0755`, and hard l
 
 `normalize` also returns `origins`: where each entry of the new tree was in the install root.
 
+## Inferring requirements
+
+`infer(&tree, &mut source)` reads the files of a normalized tree and returns the architecture, requirements and provides they show, with notes. It skips `/usr/lib/debug` and `/usr/share/doc`.
+
+**From ELF files** (executables and shared libraries; object files and core files are skipped):
+- **Requires:** each `DT_NEEDED` library becomes one `so:<lib>@<node>` atom per version node needed from it, skipping weak needs. A library needed without any version node becomes the bare `so:<lib>`.
+- **Provides:** a library directly in `/usr/lib`, `/usr/lib64` or `/usr/lib/<triplet>` provides `so:<soname>`, plus `so:<soname>@<node>` for each version it defines, without the base definition. A library elsewhere, such as a plugin, provides nothing.
+- **What the package ships itself** isn't required: a library with that soname, anywhere in the package, meets the need.
+- **Private versions** (nodes containing `PRIVATE`, such as `GLIBC_PRIVATE`) are left out with a note, because only an exact version of the providing package can promise them. If nothing else was needed from that library, the bare atom stays.
+- **Names an atom can't hold:** a version node gives the bare atom and a note; a library name gives a note and no atom.
+- **A file with the ELF magic that can't be read** gives a note and adds nothing.
+
+**The architecture:**
+- Programs and libraries must all be 64-bit little-endian x86-64, or all AArch64. Two architectures, or anything else (32-bit, big-endian, another machine), is an error naming the files.
+- A package with no programs or libraries is `noarch`.
+
+**From `#!` lines** (executable files only, reading at most 256 bytes, as the kernel does):
+- `#!/usr/bin/python3` and `#!/usr/bin/env python3` both become `file:/usr/bin/python3`, and the interpreter's arguments are ignored.
+- `/bin`, `/sbin`, `/lib` and `/lib64` are read as their `/usr` counterparts, so `#!/bin/sh` needs `file:/usr/bin/sh`.
+- An interpreter the package ships itself isn't required.
+- Anything unusual gives a note instead of a guess: options or a variable given to `env`, a relative path, an interpreter outside `/usr`, a path a `file:` atom can't hold, a line longer than 256 bytes.
+
+`elf::inspect` reads one ELF file through `object`, with limits on every count: at most 4,096 needed libraries, 8,192 version definitions and 8,192 version needs. It has a fuzz target, `elf_inspect`.
+
 ## Packing
 
 `pack(&options, out)` is rung 0 in one call: an install root becomes a `.ordin` file.
@@ -56,9 +80,10 @@ Missing directories above a moved path are added as `root:root 0755`, and hard l
 **The steps:**
 1. walk the install root
 2. normalize the layout
-3. classify facets
-4. build the manifest
-5. write the file with `ordin-archive`
+3. infer requirements, provides and the architecture
+4. classify facets
+5. build the manifest
+6. write the file with `ordin-archive`
 
 **What goes into the manifest:**
 - **Facets:** every facet is installed by default, except `debug`.

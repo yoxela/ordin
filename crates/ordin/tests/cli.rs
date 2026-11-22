@@ -51,10 +51,6 @@ mod cli {
         String::from_utf8(o.stderr.clone()).unwrap()
     }
 
-    fn arch() -> &'static str {
-        std::env::consts::ARCH
-    }
-
     #[test]
     fn a_name_and_a_version_are_enough() {
         let dir = fixture();
@@ -63,21 +59,18 @@ mod cli {
             &["pack", "root", "--name", "hello", "--version", "2.12"],
         );
         assert_eq!(o.status.code(), Some(0), "{}", stderr(&o));
-        let file = format!("hello-2.12-1.{}.ordin", arch());
-        assert!(dir.path().join(&file).is_file());
+        // Only a script, so no architecture: noarch.
+        let file = "hello-2.12-1.noarch.ordin";
+        assert!(dir.path().join(file).is_file());
         assert_eq!(
             stderr(&o),
-            format!(
-                "ordin: warning: no --arch was given, so the package is for this machine's {}\n\
-                 ordin: warning: no --summary was given, so the summary is the package's name\n\
-                 ordin: warning: no --license was given, so the license is NOASSERTION\n",
-                arch()
-            )
+            "ordin: warning: no --summary was given, so the summary is the package's name\n\
+             ordin: warning: no --license was given, so the license is NOASSERTION\n"
         );
         let out = stdout(&o);
         let lines: Vec<&str> = out.lines().collect();
         assert_eq!(lines.len(), 3);
-        let size = fs::metadata(dir.path().join(&file)).unwrap().len();
+        let size = fs::metadata(dir.path().join(file)).unwrap().len();
         assert_eq!(lines[0], format!("wrote {file} ({size} bytes)"));
         assert!(lines[1].starts_with("package blake3:"));
         assert_eq!(lines[2], "facets: doc (12 bytes), runtime (21 bytes)");
@@ -119,6 +112,9 @@ mod cli {
         assert_eq!(v["license"], "MIT");
         assert_eq!(v["file"], "hello-1_2.12-3.noarch.ordin");
         assert_eq!(v["warnings"], Value::Array(Vec::new()));
+        // The script's interpreter, from its #! line.
+        assert_eq!(v["requires"], serde_json::json!(["file:/usr/bin/sh"]));
+        assert_eq!(v["provides"], serde_json::json!([]));
         let size = fs::metadata(dir.path().join("hello-1_2.12-3.noarch.ordin"))
             .unwrap()
             .len();
@@ -136,8 +132,8 @@ mod cli {
         assert_eq!(
             keys,
             [
-                "arch", "facets", "file", "image", "license", "name", "package", "size", "version",
-                "warnings"
+                "arch", "facets", "file", "image", "license", "name", "package", "provides",
+                "requires", "size", "version", "warnings"
             ]
         );
     }
