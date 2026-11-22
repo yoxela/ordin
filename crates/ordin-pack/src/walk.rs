@@ -24,7 +24,7 @@ use std::os::unix::ffi::OsStrExt;
 use std::path::Path;
 use std::vec;
 
-use ordin_core::{Account, Digest, Mode};
+use ordin_core::{Account, Blake3Hasher, Digest, Mode};
 use ordin_tree::{
     Capabilities, Dir, Entry, File, Kind, MAX_ENTRIES, Symlink, SymlinkTarget, Tree, TreePath,
     Xattrs, file_digests,
@@ -295,20 +295,57 @@ struct Frame {
     /// Its path in the tree: empty for the root.
     path: String,
     snapshot: Snapshot,
+    /// The digest of the names it held when it was listed.
+    listed: Digest,
     names: vec::IntoIter<CString>,
 }
 
 impl Frame {
     /// Refuses a directory that changed since it was opened: something
     /// may have come or gone while its contents were read.
+    ///
+    /// Its details are compared, and its names are listed again: adding
+    /// or removing an entry may leave a directory's size and timestamps
+    /// as they were (on ext4, a directory stays 4096 bytes and its times
+    /// come from a coarse clock).
     fn expect_unchanged(&self) -> Result<(), WalkError> {
+        let at = |kind| WalkError {
+            path: format!("{}/", self.path),
+            kind,
+        };
         Snapshot::of_open(&self.dir)
             .and_then(|now| now.expect(self.snapshot))
-            .map_err(|kind| WalkError {
-                path: format!("{}/", self.path),
-                kind,
-            })
+            .map_err(at)?;
+        if names_digest(&listing(&self.dir).map_err(at)?) != self.listed {
+            return Err(at(WalkErrorKind::Changed));
+        }
+        Ok(())
     }
+}
+
+/// The names in an open directory, without `.` and `..`, sorted so that
+/// a walk always meets the same problem first.
+fn listing(dir: &OwnedFd) -> Result<Vec<CString>, WalkErrorKind> {
+    let mut names = Vec::new();
+    for entry in sys::Dir::read_from(dir).map_err(io("read the directory"))? {
+        let entry = entry.map_err(io("read the directory"))?;
+        let name = entry.file_name();
+        if !matches!(name.to_bytes(), b"." | b"..") {
+            names.push(name.to_owned());
+        }
+    }
+    names.sort_unstable();
+    Ok(names)
+}
+
+/// A digest of sorted names, each with its closing NUL, so no two lists
+/// give the same bytes.
+fn names_digest(names: &[CString]) -> Digest {
+    let mut hasher = Blake3Hasher::default();
+    for name in names {
+        hasher.update(name.as_bytes_with_nul());
+    }
+    hasher.finish()
 }
 
 #[derive(Debug)]
@@ -337,23 +374,16 @@ impl Walker {
         }
     }
 
-    /// The names in an open directory, sorted so that a walk always meets
-    /// the same problem first.
-    fn names(&mut self, dir: &OwnedFd) -> Result<vec::IntoIter<CString>, WalkErrorKind> {
-        let mut names = Vec::new();
-        for entry in sys::Dir::read_from(dir).map_err(io("read the directory"))? {
-            let entry = entry.map_err(io("read the directory"))?;
-            let name = entry.file_name();
-            if !matches!(name.to_bytes(), b"." | b"..") {
-                self.found += 1;
-                if self.found > self.limit {
-                    return Err(WalkErrorKind::TooManyEntries);
-                }
-                names.push(name.to_owned());
-            }
+    /// The names in an open directory, sorted, counted against the limit,
+    /// and the digest of the list.
+    fn names(&mut self, dir: &OwnedFd) -> Result<(vec::IntoIter<CString>, Digest), WalkErrorKind> {
+        let names = listing(dir)?;
+        self.found = self.found.saturating_add(names.len());
+        if self.found > self.limit {
+            return Err(WalkErrorKind::TooManyEntries);
         }
-        names.sort_unstable();
-        Ok(names.into_iter())
+        let digest = names_digest(&names);
+        Ok((names.into_iter(), digest))
     }
 
     /// The attributes of what is open, sorted into what a tree records.
@@ -421,12 +451,13 @@ impl Walker {
             .map_err(io("open the directory"))?;
         Snapshot::of_open(&fd)?.expect(listed)?;
         let xattrs = self.attributes(&fd, false)?.xattrs;
-        let names = self.names(&fd)?;
+        let (names, digest) = self.names(&fd)?;
         let owners = self.owners.of(&path);
         let frame = Frame {
             dir: fd,
             path: path.to_string(),
             snapshot: listed,
+            listed: digest,
             names,
         };
         self.entries.push(Entry {
@@ -559,11 +590,12 @@ fn walk_limited(root: &Path, options: &Options, limit: usize) -> Result<Walk, Wa
         .map_err(at_root)?;
     let snapshot = Snapshot::of_open(&dir).map_err(at_root)?;
     let mut walker = Walker::new(snapshot.mount, limit, Owners::new(&options.owners)?);
-    let names = walker.names(&dir).map_err(at_root)?;
+    let (names, digest) = walker.names(&dir).map_err(at_root)?;
     let mut stack = vec![Frame {
         dir,
         path: String::new(),
         snapshot,
+        listed: digest,
         names,
     }];
     while let Some(frame) = stack.last_mut() {
@@ -663,19 +695,71 @@ mod tests {
 
     #[test]
     fn a_directory_changed_while_open_is_noticed() {
-        let root = temp();
-        let dir = dir_fd(root.path());
-        let frame = Frame {
-            snapshot: Snapshot::of_open(&dir).unwrap(),
-            dir,
-            path: "/sub".to_owned(),
-            names: Vec::new().into_iter(),
+        // In the temporary directory (often tmpfs, where a directory's
+        // size changes with its entries) and beside this test binary (on
+        // disk, often ext4, where it doesn't and times come from a coarse
+        // clock).
+        let exe = std::env::current_exe().unwrap();
+        let places = [
+            tempfile::tempdir().unwrap(),
+            tempfile::tempdir_in(exe.parent().unwrap()).unwrap(),
+        ];
+        for root in &places {
+            let r = root.path();
+            fs::write(r.join("a"), b"a").unwrap();
+            fs::write(r.join("b"), b"b").unwrap();
+            let frame = || {
+                let dir = dir_fd(r);
+                Frame {
+                    snapshot: Snapshot::of_open(&dir).unwrap(),
+                    listed: names_digest(&listing(&dir).unwrap()),
+                    dir,
+                    path: "/sub".to_owned(),
+                    names: Vec::new().into_iter(),
+                }
+            };
+            let changed = |frame: &Frame, what: &str| {
+                let e = frame.expect_unchanged().unwrap_err();
+                assert_eq!(e.path, "/sub/", "{what}");
+                assert!(matches!(e.kind, WalkErrorKind::Changed), "{what}: {e}");
+            };
+
+            let f = frame();
+            f.expect_unchanged().unwrap();
+            // Reading a file inside changes nothing.
+            fs::read(r.join("a")).unwrap();
+            f.expect_unchanged().unwrap();
+
+            fs::write(r.join("new"), b"x").unwrap();
+            changed(&f, "added");
+
+            let f = frame();
+            fs::remove_file(r.join("new")).unwrap();
+            changed(&f, "removed");
+
+            let f = frame();
+            fs::rename(r.join("b"), r.join("c")).unwrap();
+            changed(&f, "renamed: the same count, other names");
+        }
+    }
+
+    #[test]
+    fn name_lists_have_distinct_digests() {
+        let names = |list: &[&str]| -> Vec<CString> {
+            list.iter().map(|n| CString::new(*n).unwrap()).collect()
         };
-        frame.expect_unchanged().unwrap();
-        fs::write(root.path().join("new"), b"x").unwrap();
-        let e = frame.expect_unchanged().unwrap_err();
-        assert_eq!(e.path, "/sub/");
-        assert!(matches!(e.kind, WalkErrorKind::Changed), "{e}");
+        let digests = [
+            names_digest(&names(&[])),
+            names_digest(&names(&["ab"])),
+            names_digest(&names(&["a", "b"])),
+            names_digest(&names(&["a", "c"])),
+        ];
+        for (i, a) in digests.iter().enumerate() {
+            for b in &digests[i + 1..] {
+                assert_ne!(a, b);
+            }
+        }
+        assert_eq!(names_digest(&names(&["a"])), names_digest(&names(&["a"])));
     }
 
     #[test]
