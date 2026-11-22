@@ -141,5 +141,6 @@ All notable changes to Ordin are recorded here. The format follows [Keep a Chang
 
 ### Fixed
 
+- The walk (ORD-110) now notices a directory whose entries change while it is walked, on ext4 too. It used to compare only the directory's size, links and timestamps, and adding a file on ext4 left all of them unchanged in 196 of 200 tries, because a directory stays 4096 bytes and its times come from a coarse clock. The walk now lists each directory's names again before closing it and compares them. The test runs on disk as well as in the temporary directory.
 - The `version-corpus` command-line tests no longer fail now and then with "Text file busy". Their parallel threads could start a process while another thread was still writing its fake `dpkg`, and the new process briefly kept that file open for writing. A lock now keeps the two apart.
 - CI installs `cargo-deny` with the pinned toolchain named explicitly, which removes cargo's toolchain-override warning, and the cached binary's key now includes the toolchain.

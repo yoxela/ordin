@@ -12,7 +12,11 @@ Packaging rungs 0 and 1: scanning a tree, inferring requirements, classifying fa
 - **Extended attributes:** `user.*` is recorded, and `security.capability` becomes the file's capabilities. `security.selinux`, `security.ima` and `security.evm` describe the packing machine and are left behind. Anything else, POSIX ACLs included, is refused, because dropping it could change what the file allows.
 - **Refused, naming the path:** device nodes, sockets, FIFOs, names and symlink targets a tree can't hold, unreadable files, and mount points inside the tree.
 
-The directory isn't trusted. Each name is opened relative to its parent without following symlinks, files are opened without blocking, and whatever changes during the walk is an error.
+The directory isn't trusted. Each name is opened relative to its parent without following symlinks, and files are opened without blocking.
+
+**What the walk notices changing:**
+- **A directory** whose details or names change during the walk is an error. Its names are listed again before it is closed, because adding or removing an entry may leave a directory's size and timestamps as they were. On ext4 a directory stays 4096 bytes, and its times come from a coarse clock.
+- **A file** that changes while it is read is noticed when its details change. A same-size rewrite within one clock tick can slip past the walk. `pack` still catches it, because the writer reads every file again and refuses one whose digests differ from its tree.
 
 ## Normalizing the layout
 
