@@ -1,6 +1,6 @@
 # ordin-core
 
-Shared types: package names, capabilities, digests, architectures and error types. Layer 0 (pure core), licensed MIT OR Apache-2.0.
+Shared types: package names, capabilities, digests, architectures and error types, and canonical JSON. Layer 0 (pure core), licensed MIT OR Apache-2.0.
 
 ## Names and atoms
 
@@ -24,3 +24,13 @@ A bare name in a dependency is a package; the prefixes tell the other atoms apar
 - **Debian fits.** Every package name in Debian trixie (68,825) follows the grammar except `and`, which the importer renames.
 
 An error names the value, the character or rule, and where: `a package name can't contain 'N' (at byte 0); use lowercase letters, digits, '+', '.' and '-'`.
+
+## Canonical JSON
+
+`json` reads JSON strictly and writes it canonically (RFC 8785). Reading refuses repeated keys, fractions, exponents and integers beyond ±(2⁵³−1); writing sorts keys by UTF-16 code units and escapes strings as ECMAScript's `JSON.stringify` does.
+
+Large canonical texts, such as trees and chunk indexes, are read a part at a time, so memory follows the size of the result:
+
+- `check_syntax` checks a whole text without building it.
+- `object` and `array` walk an object's members and an array's elements as written, and refuse any layout the canonical encoding wouldn't write: whitespace, a name escaped differently, names out of order or repeated.
+- `parse_bounded` builds one small part, with a limit on how many values it may hold, and gives error positions as bytes of the whole text.

@@ -222,7 +222,7 @@ const DIR_FIELDS: [&str; 6] = ["path", "type", "mode", "owner", "group", "xattrs
 const SYMLINK_FIELDS: [&str; 5] = ["path", "type", "target", "owner", "group"];
 const HARDLINK_FIELDS: [&str; 3] = ["path", "type", "target"];
 
-fn entry(index: usize, v: &Value) -> R<Entry> {
+pub(crate) fn entry(index: usize, v: &Value) -> R<Entry> {
     let Value::Object(map) = v else {
         return Err(Error::entry(
             index,
@@ -282,7 +282,9 @@ fn entry(index: usize, v: &Value) -> R<Entry> {
     Ok(Entry { path, kind })
 }
 
-/// Reads a tree's entries from its JSON value, in the order written.
+/// Reads a tree's entries from its JSON value, in the order written: the
+/// reader before [`crate::read`], kept for the tests to compare with.
+#[cfg(test)]
 pub(crate) fn tree(v: &Value) -> R<Vec<Entry>> {
     let Value::Object(map) = v else {
         return Err(Error::tree(
