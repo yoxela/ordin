@@ -11,8 +11,8 @@ mod write {
     use std::num::NonZeroUsize;
 
     use ordin_archive::{
-        BlobId, EMPTY_CONFIG, OCI_LAYOUT, Options, Package, Source, WriteError, Written,
-        annotations, media, write,
+        BlobId, EMPTY_CONFIG, MAX_LICENSE_TEXT, OCI_LAYOUT, Options, Package, Source, WriteError,
+        Written, annotations, media, write,
     };
     use ordin_core::{Account, Digest, Facet};
     use ordin_manifest::Manifest;
@@ -727,6 +727,21 @@ mod write {
 
         fx.licenses.clear();
         assert_eq!(fx.error(), "no text was given for the license MIT");
+    }
+
+    #[test]
+    fn a_license_text_is_at_most_what_a_reader_accepts() {
+        let mut fx = Fixture::new();
+        let limit = MAX_LICENSE_TEXT as usize;
+        fx.licenses.insert("MIT".to_owned(), vec![b'x'; limit]);
+        fx.manifest = manifest(&fx.trees, &fx.licenses);
+        assert!(fx.write_with(&options()).is_ok());
+        fx.licenses.insert("MIT".to_owned(), vec![b'x'; limit + 1]);
+        fx.manifest = manifest(&fx.trees, &fx.licenses);
+        assert_eq!(
+            fx.error(),
+            "the text given for MIT has 1048577 bytes, more than the 1048576 a license text may have"
+        );
     }
 
     #[test]

@@ -17,6 +17,7 @@ use crate::blob::{BlobId, HashingReader};
 use crate::error::WriteError;
 use crate::oci::{EMPTY_CONFIG, Layer, OCI_LAYOUT, annotations, image_manifest, index, media};
 use crate::pack::PackBuilder;
+use crate::read::{MAX_IMAGE_MANIFEST_SIZE, MAX_LICENSE_TEXT};
 use crate::tar::{MAX_ENTRY_SIZE, TarWriter};
 
 /// The zstd level packages are written at, the one ORD-100 measured.
@@ -196,6 +197,14 @@ fn check_licenses<'a>(package: &Package<'a>) -> Result<Vec<(&'a str, &'a [u8])>,
                 .licenses
                 .get(id)
                 .ok_or_else(|| WriteError::MissingLicense(id.clone()))?;
+            let size = text.len() as u64;
+            if size > MAX_LICENSE_TEXT {
+                return Err(WriteError::LicenseTooLarge {
+                    id: id.clone(),
+                    size,
+                    max: MAX_LICENSE_TEXT,
+                });
+            }
             let given = Digest::blake3(text);
             if given != *digest {
                 return Err(WriteError::LicenseMismatch {
@@ -261,6 +270,17 @@ fn fill<W: Write>(
         if let Some(listing) = chunked.index_entry() {
             listed.entry(file.content).or_insert(listing);
         }
+    }
+    Ok(())
+}
+
+/// Refuses an image manifest a reader wouldn't accept.
+fn check_image_size(size: u64) -> Result<(), WriteError> {
+    if size > MAX_IMAGE_MANIFEST_SIZE {
+        return Err(WriteError::ImageManifestTooLarge {
+            size,
+            max: MAX_IMAGE_MANIFEST_SIZE,
+        });
     }
     Ok(())
 }
@@ -366,6 +386,7 @@ pub fn write(
     let config = BlobId::of(EMPTY_CONFIG);
     contents.blob(config, Data::Bytes(EMPTY_CONFIG.to_vec()));
     let image = image_manifest(&config, &contents.layers);
+    check_image_size(image.len() as u64)?;
     let image_id = BlobId::of(&image);
     contents.blob(image_id, Data::Bytes(image));
     let index = index(&image_id);
@@ -484,6 +505,16 @@ mod tests {
         let tree = Tree::new(tree_entries).unwrap();
         let e = fill(&mut pack, &tree, &params, &mut One(big), &mut listed).unwrap_err();
         assert!(matches!(e, WriteError::PackTooLarge { max: 0, .. }), "{e}");
+    }
+
+    #[test]
+    fn an_image_manifest_a_reader_refuses_is_never_written() {
+        assert!(check_image_size(MAX_IMAGE_MANIFEST_SIZE).is_ok());
+        let e = check_image_size(MAX_IMAGE_MANIFEST_SIZE + 1).unwrap_err();
+        assert_eq!(
+            e.to_string(),
+            "the image manifest would have 4194305 bytes, more than the 4194304 a registry must accept"
+        );
     }
 
     #[test]

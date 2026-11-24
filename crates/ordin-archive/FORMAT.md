@@ -10,7 +10,7 @@ This document is the reference for the container. The parts inside it have their
 - trees: `ordin-tree`'s `FORMAT.md`
 - the chunk index: `ordin-tree`'s `CHUNK-INDEX.md`
 
-`ordin-archive` writes files that follow this document. Reading them arrives with ORD-131.
+`ordin-archive` writes files that follow this document, and reads them back with the checks in [How a reader checks a file](#how-a-reader-checks-a-file).
 
 ## Identity
 
@@ -139,3 +139,36 @@ A table names the chunks its facet's files need, and no others.
 - Setting `ZSTD_SYS_USE_PKG_CONFIG` would link the system's libzstd instead. Ordin's release builds never set it.
 
 Compare whole `.ordin` files only within one Ordin version. The reproducibility check (ORD-150) compares manifest digests.
+
+## How a reader checks a file
+
+A `.ordin` file is outside input. A reader accepts only what a writer of this format writes, and never holds more than one part in memory at a time.
+
+**Opening reads only the small parts,** and checks:
+- **The archive.** Every header must be exactly the one this document gives for its name and size. The entries must be `oci-layout`, `index.json`, then blobs named `blobs/sha256/<64 lowercase hex digits>` in strictly increasing order. Padding must be zeros, and the file must end with exactly two zero blocks.
+- **The OCI files.** `oci-layout` must be the fixed text. `index.json` and the image manifest must be exactly the canonical JSON this document gives for their descriptors. The config must be the empty descriptor with its `{}` blob.
+- **The layers.** They must come in the order of the table above, each of a known type, with exactly the annotations it lists. Licenses and facets must be in increasing order, with no repeats.
+- **The blobs.** Every blob a descriptor names must be in the archive with its recorded size, and every blob in the archive must be named. Two descriptors that name one blob must record the same digests. Each blob that is read is checked against its SHA-256 and BLAKE3 digests.
+- **The manifest** must follow its schema. The layers must have a tree, pack table and chunk pack for every facet it lists and no others, each tree with the digest it records, and a text for every license ID it records and no others, each with the digest it records.
+
+**Every other part is read when asked for,** and checked then:
+- **A tree** must follow its format, and its files' sizes must add up to the size the manifest records for the facet.
+- **A pack table** must be exactly the canonical text, with each frame 1 to 16,842,752 bytes long and starting where the one before it ends, and the last ending where the pack ends.
+- **A chunk** must be listed in its pack table, inside the pack. Its frame must start with zstd's magic number, have no checksum or dictionary ID, be exactly one frame, and record exactly the chunk's length. It is decompressed with a window of at most 16 MiB, and must have the chunk's BLAKE3 digest.
+- **A file** is put together from the chunks the chunk index lists for it. Each chunk is checked as it is read, and the whole must have the size and content digest its tree records. This is what keeps the unsigned chunk index harmless.
+
+**The limits:**
+
+| Part | Limit | Why |
+| --- | --- | --- |
+| Tar entries | 65,536 | The image manifest's limit allows fewer descriptors than that. |
+| `index.json` | 4 KiB | It lists one manifest, about 400 bytes. |
+| The image manifest | 4 MiB | The size every OCI registry must accept. |
+| The manifest | 1 MiB | The manifest's own limit. |
+| A license text | 1 MiB | `ordin pack` reads no more. |
+| A tree, the chunk index | 64 MiB each | Their own limits. |
+| A pack table | 786,432 chunks, 96,731,186 bytes | One chunk per file a tree can hold, plus every chunk the chunk index can list. |
+| A chunk | 16 MiB | The largest chunk any chunking allows. |
+| A frame | 16,842,752 bytes | zstd's bound for a 16 MiB chunk. |
+
+A writer refuses a package that would break any of these limits.

@@ -14,8 +14,9 @@ use ordin_version::Version;
 
 use crate::cli::PackArgs;
 
-/// The largest license text read, in bytes.
-pub const MAX_LICENSE_TEXT: u64 = 1 << 20;
+/// The largest license text read, in bytes: the most a `.ordin` file
+/// may carry.
+pub const MAX_LICENSE_TEXT: u64 = ordin_archive::MAX_LICENSE_TEXT;
 
 /// What `ordin pack` did.
 #[derive(Debug)]

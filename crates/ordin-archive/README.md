@@ -29,4 +29,15 @@ A `.ordin` file is one package: an OCI artifact in a deterministic ustar archive
 
 The ustar writer and the OCI JSON are Ordin's own, so a dependency update can't change the bytes. The tests read the output back with the `tar` crate and serde_json as second opinions.
 
-Reading `.ordin` files arrives with ORD-131.
+## Reading
+
+`Reader::open(input)` opens a `.ordin` file in place, from anything that can be read and seeked.
+
+**Opening reads only the small parts:** the tar headers, `oci-layout`, `index.json`, the image manifest, the config and the Ordin manifest. It refuses anything the writer wouldn't have written: a header other than the writer's, entries out of order, padding that isn't zeros, OCI JSON other than the writer's, layers out of order or of unknown types, blobs that are missing or unused, and layers that disagree with the manifest.
+
+**Everything else is read when asked for**, within its own limit, and checked against its digests:
+- `license_text(id)`, `tree(facet)`, `chunk_index()` and `pack_table(facet)`
+- `chunk(facet, table, chunk)`: one frame, decompressed into exactly the chunk's length and checked against its digest
+- `read_file(facet, table, index, path, file, out)`: a file chunk by chunk, checked as a whole against its tree record at the end
+
+A hostile file can't make the reader hold more than one part at a time. Each error names the `Part` that failed. `FORMAT.md` lists every check and limit.

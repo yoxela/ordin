@@ -240,6 +240,7 @@ version = "0.0.0"
 dependencies = [
  "libfuzzer-sys",
  "object",
+ "ordin-archive",
  "ordin-core",
  "ordin-depexpr",
  "ordin-manifest",
