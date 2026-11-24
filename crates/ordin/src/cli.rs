@@ -23,7 +23,22 @@ pub struct Cli {
 #[derive(Debug, Subcommand)]
 pub enum Command {
     /// Make a package from an install root.
-    Pack(PackArgs),
+    Pack(Box<PackArgs>),
+    /// Show what a package holds, without installing or unpacking it.
+    Show(ShowArgs),
+}
+
+/// `ordin show`.
+#[derive(Debug, Args)]
+pub struct ShowArgs {
+    /// The package file.
+    pub file: PathBuf,
+    /// Also list each facet's files.
+    #[arg(long)]
+    pub facets: bool,
+    /// Print the result as JSON.
+    #[arg(long)]
+    pub json: bool,
 }
 
 /// `ordin pack`.

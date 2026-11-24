@@ -33,6 +33,34 @@ Paths in `--owner`, `--setuid` and `--prefix` are paths in `DIR`, with or withou
 **Requirements are inferred.** Shared-library requirements and provides come from the ELF files, with symbol versions, and interpreters from `#!` lines. `ordin-pack`'s README has the rules. What can't be inferred safely is a warning, never a guess.
 - With `--json`, an error is printed as `{"error": "..."}`, and nothing goes to standard error.
 
+## `ordin show`
+
+```
+ordin show FILE [--facets] [--json]
+```
+
+Shows what a package holds, without installing or unpacking it. It needs no root.
+
+- **What it prints.** The name, version, architecture and kind; the summary and description; the license and the texts it carries; the package and image digests; and the signature status, which is "not signed" until signing arrives (ORD-140).
+- **Then each section that has anything in it.** The facets with their sizes, the relations to other packages (requires, provides, conflicts, recommends, supplements, obsoletes, replaces, removes), the declarations (users, groups, units, config, alternatives, triggers, setuid files, boot files), state, settings, the programs it runs, tests, security policy, a delegated payload, fixes and notices.
+- **`--facets`** also reads each facet's tree and lists its entries as `ls -l` would: type and mode, owner, size and path, with a symlink's target (`->`), a hard link's file (`=>`), and any capabilities or extended attributes.
+- **Every string is made safe for a terminal.** Control characters and the bidirectional formatting characters are printed as `\u{…}`, so a package can't send escape sequences or reorder what you read.
+
+**What it reads.** Opening the file checks its archive, its OCI files and its manifest. `--facets` also reads each tree, checked against the digest the manifest records. The chunks are never read; `ordin verify` checks those. A FIFO, a device or a directory is refused before it is opened.
+
+**With `--json`,** it prints one canonical JSON object:
+
+| Field | Meaning |
+| --- | --- |
+| `file` | The file shown, as given |
+| `files` | With `--facets`: each facet's tree entries, exactly as the tree records them (`ordin-tree`'s `FORMAT.md`) |
+| `image` | The OCI image manifest's digest |
+| `manifest` | The manifest, exactly as signed (`ordin-manifest`'s `SCHEMA.md`) |
+| `package` | The package's identity: the BLAKE3 digest of the manifest |
+| `signature` | `null`; signing arrives with ORD-140 |
+
+An error is printed as `{"error": "..."}`, and nothing goes to standard error.
+
 ## Exit codes
 
 | Code | Meaning |

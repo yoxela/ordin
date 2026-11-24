@@ -1,0 +1,18 @@
+---
+source: crates/ordin/src/output/show.rs
+assertion_line: 803
+expression: shown
+---
+nginx 1:1.27.3-2 (x86_64, base)
+HTTP and reverse proxy server
+
+license: NOASSERTION
+package: blake3:0101010101010101010101010101010101010101010101010101010101010101
+image: sha256:0202020202020202020202020202020202020202020202020202020202020202
+signature: not signed
+
+facets:
+  debug         8.8 KiB, not installed by default
+  doc           69.3 KiB, not installed by default
+  locale:pt_BR  100 B
+  runtime       1.8 MiB

@@ -1,0 +1,14 @@
+---
+source: crates/ordin/src/output/show.rs
+assertion_line: 889
+expression: "facet_text(&\"runtime\".parse().unwrap(), &sample())"
+---
+
+entries in runtime:
+  drwxr-xr-x root:root        - /usr
+  drwxr-xr-x root:root        - /usr/bin
+  -rwxr-xr-x root:root 88.2 KiB /usr/bin/ping [capabilities: permitted cap_net_admin, cap_net_raw; inheritable cap_net_raw; effective; xattrs: user.origin]
+  hrwxr-xr-x root:root 88.2 KiB /usr/bin/ping4 => /usr/bin/ping
+  lrwxrwxrwx root:root        - /usr/bin/pong -> ping
+  -rwsr-xr-x _apt:root      7 B /usr/bin/su
+  drwxrwxrwt root:adm         - /var [xattrs: user.k]

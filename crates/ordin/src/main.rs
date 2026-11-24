@@ -10,6 +10,7 @@
 mod cli;
 mod output;
 mod pack;
+mod show;
 
 use std::process::ExitCode;
 
@@ -27,6 +28,20 @@ fn main() -> ExitCode {
             }
             Ok(report) => {
                 output::print(&output::pack_text(&report), &report.warnings);
+                ExitCode::SUCCESS
+            }
+            Err(e) if args.json => {
+                output::print(&output::error_json(&e), &[]);
+                ExitCode::FAILURE
+            }
+            Err(e) => {
+                output::print_error(&e);
+                ExitCode::FAILURE
+            }
+        },
+        Command::Show(args) => match show::run(&args) {
+            Ok(shown) => {
+                output::print(&shown, &[]);
                 ExitCode::SUCCESS
             }
             Err(e) if args.json => {

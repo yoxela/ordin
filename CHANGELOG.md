@@ -60,6 +60,12 @@ All notable changes to Ordin are recorded here. The format follows [Keep a Chang
   - Manifest format: `NOASSERTION` and `NONE` stand alone in a license expression and have no texts, so `texts` is left out for them (`SCHEMA.md`). `Manifest::new` builds a manifest in code, and `ordin_manifest::spdx` is public.
   - `Layout` gains `origins`: where each entry of the normalized tree was in the install root.
   - New dependencies for the `ordin` program: `clap` (without color or terminal detection) and `anyhow`.
+- ORD-132: `ordin show`, what a package holds, without installing or unpacking it.
+  - It shows the package, its license, digests and signature status ("not signed" until ORD-140), then every section the manifest fills: facets with their sizes, relations, declarations, state, settings, the programs it runs, tests, security policy, a delegated payload, fixes and notices.
+  - `--facets` reads each facet's tree, checked against the manifest, and lists its entries as `ls -l` would, with link targets, capabilities and extended attributes. The chunks are never read.
+  - `--json` prints one canonical object: the manifest exactly as signed, beside `file`, `image`, `package` and `signature`, and with `--facets` each facet's tree entries as the tree records them.
+  - Every string printed as text is made safe for a terminal: control characters and bidirectional formatting characters are escaped. A FIFO, device or directory is refused before it is opened.
+  - insta snapshots of the text for a manifest with every field and for a facet's listing.
 - ORD-131: reading `.ordin` files, in `ordin-archive`.
   - `Reader::open` reads a file in place. It reads only the tar headers, `oci-layout`, `index.json`, the image manifest, the config and the Ordin manifest, and refuses anything the writer wouldn't have written:
     - a tar header other than the writer's, byte for byte
