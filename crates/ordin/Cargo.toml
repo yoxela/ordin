@@ -22,13 +22,17 @@ ordin-archive = { path = "../ordin-archive" }
 ordin-core = { path = "../ordin-core" }
 ordin-manifest = { path = "../ordin-manifest" }
 ordin-pack = { path = "../ordin-pack" }
+ordin-sign = { path = "../ordin-sign" }
 ordin-tree = { path = "../ordin-tree" }
 ordin-version = { path = "../ordin-version" }
+rustix = { workspace = true, features = ["termios"] }
+tempfile.workspace = true
+zeroize.workspace = true
 
 [dev-dependencies]
 insta.workspace = true
+rustix = { workspace = true, features = ["pty"] }
 serde_json.workspace = true
-tempfile.workspace = true
 
 [lints]
 workspace = true

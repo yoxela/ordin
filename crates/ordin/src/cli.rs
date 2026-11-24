@@ -26,6 +26,57 @@ pub enum Command {
     Pack(Box<PackArgs>),
     /// Show what a package holds, without installing or unpacking it.
     Show(ShowArgs),
+    /// Sign a package with a key, or sign it again.
+    Sign(SignArgs),
+    /// Manage signing keys.
+    #[command(subcommand)]
+    Key(KeyCommand),
+}
+
+/// `ordin key`.
+#[derive(Debug, Subcommand)]
+pub enum KeyCommand {
+    /// Make a new Ed25519 key pair: NAME, the secret key, and NAME.pub.
+    Generate(KeyGenerateArgs),
+}
+
+/// `ordin key generate`.
+#[derive(Debug, Args)]
+pub struct KeyGenerateArgs {
+    /// The secret key file to write; the public key goes in NAME.pub.
+    pub name: PathBuf,
+    /// Who or what the key is for, written in the public key file.
+    #[arg(long)]
+    pub comment: Option<String>,
+    /// Read the passphrase from this file instead of asking for it.
+    #[arg(long, value_name = "FILE", conflicts_with = "no_passphrase")]
+    pub passphrase_file: Option<PathBuf>,
+    /// Store the secret key in the clear, protected only by its file's
+    /// permissions.
+    #[arg(long)]
+    pub no_passphrase: bool,
+    /// Print the result as JSON.
+    #[arg(long)]
+    pub json: bool,
+}
+
+/// `ordin sign`.
+#[derive(Debug, Args)]
+pub struct SignArgs {
+    /// The package file.
+    pub file: PathBuf,
+    /// The secret key file to sign with.
+    #[arg(long, value_name = "NAME")]
+    pub key: PathBuf,
+    /// Read the key's passphrase from this file instead of asking for it.
+    #[arg(long, value_name = "FILE")]
+    pub passphrase_file: Option<PathBuf>,
+    /// The file to write; the package itself if not given.
+    #[arg(long, short)]
+    pub out: Option<PathBuf>,
+    /// Print the result as JSON.
+    #[arg(long)]
+    pub json: bool,
 }
 
 /// `ordin show`.
@@ -81,6 +132,12 @@ pub struct PackArgs {
     /// contents move to /usr. Repeatable.
     #[arg(long = "prefix", value_name = "PATH", value_parser = path)]
     pub prefixes: Vec<TreePath>,
+    /// Sign the package with this secret key file.
+    #[arg(long, value_name = "NAME")]
+    pub sign_key: Option<PathBuf>,
+    /// Read the key's passphrase from this file instead of asking for it.
+    #[arg(long, value_name = "FILE", requires = "sign_key")]
+    pub passphrase_file: Option<PathBuf>,
     /// Print the result as JSON.
     #[arg(long)]
     pub json: bool,

@@ -10,14 +10,16 @@ use std::path::Path;
 
 use ordin_core::{Digest, Facet};
 use ordin_manifest::Manifest;
+use ordin_sign::Signature;
 use ordin_tree::chunk::{ChunkIndex, ChunkParams, IndexFile, chunk_file};
 use ordin_tree::{File, FileDigests, Kind, Tree, TreePath};
 
 use crate::blob::{BlobId, HashingReader};
+use crate::error::Part;
 use crate::error::WriteError;
 use crate::oci::{EMPTY_CONFIG, Layer, OCI_LAYOUT, annotations, image_manifest, index, media};
 use crate::pack::PackBuilder;
-use crate::read::{MAX_IMAGE_MANIFEST_SIZE, MAX_LICENSE_TEXT};
+use crate::read::{MAX_IMAGE_MANIFEST_SIZE, MAX_LICENSE_TEXT, MAX_SIGNATURES, Reader};
 use crate::tar::{MAX_ENTRY_SIZE, TarWriter};
 
 /// The zstd level packages are written at, the one ORD-100 measured.
@@ -51,6 +53,9 @@ pub struct Package<'a> {
     pub licenses: &'a BTreeMap<String, Vec<u8>>,
     /// How files are cut into chunks.
     pub chunking: ChunkParams,
+    /// Signatures over the package's identity, at most one per key, in
+    /// any order. They are written sorted by key.
+    pub signatures: &'a [Signature],
 }
 
 /// How to write.
@@ -86,10 +91,12 @@ pub struct Written {
     pub size: u64,
 }
 
-/// A blob's content, in memory or in a spooled temporary file.
+/// A blob's content: in memory, in a spooled temporary file, or in the
+/// package being signed again, at an offset.
 enum Data {
     Bytes(Vec<u8>),
     Spool(std::fs::File),
+    Input(u64),
 }
 
 struct Blob {
@@ -304,6 +311,113 @@ fn copy_blob<W: Write>(
     Ok(())
 }
 
+/// Adds the signature layers, sorted by key, after checking that each is
+/// for `package` and that no key signs twice.
+fn add_signatures(
+    contents: &mut Contents,
+    package: Digest,
+    signatures: &[Signature],
+) -> Result<(), WriteError> {
+    if signatures.len() > MAX_SIGNATURES {
+        return Err(WriteError::TooManySignatures {
+            count: signatures.len(),
+            max: MAX_SIGNATURES,
+        });
+    }
+    let mut sorted: Vec<&Signature> = signatures.iter().collect();
+    sorted.sort_by_key(|s| s.key());
+    for pair in sorted.windows(2) {
+        if let [a, b] = pair
+            && a.key() == b.key()
+        {
+            return Err(WriteError::DuplicateSignature(a.key().to_string()));
+        }
+    }
+    for signature in sorted {
+        if signature.package() != package {
+            return Err(WriteError::SignatureFor {
+                key: signature.key().to_string(),
+                signed: signature.package(),
+                package,
+            });
+        }
+        let key = signature.key().to_string();
+        contents.bytes(
+            media::SIGNATURE,
+            &[(annotations::KEY, key.as_str())],
+            signature.to_bytes(),
+        );
+    }
+    Ok(())
+}
+
+/// Reads from the package being signed again, keeping the first error so
+/// it isn't taken for an error writing the output.
+struct Input<'a, R> {
+    inner: &'a mut R,
+    failed: Option<io::Error>,
+}
+
+impl<R: Read> Read for Input<'_, R> {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        self.inner.read(buf).inspect_err(|e| {
+            self.failed = Some(io::Error::new(e.kind(), e.to_string()));
+        })
+    }
+}
+
+/// Writes the config, image manifest and `index.json` for `contents`,
+/// then the whole archive, and returns the image manifest's identity and
+/// the file's size. Blobs in the input are read from `input`.
+fn finish<R: Read + Seek>(
+    mut contents: Contents,
+    input: &mut R,
+    out: &mut impl Write,
+) -> Result<(BlobId, u64), WriteError> {
+    let config = BlobId::of(EMPTY_CONFIG);
+    contents.blob(config, Data::Bytes(EMPTY_CONFIG.to_vec()));
+    let image = image_manifest(&config, &contents.layers);
+    check_image_size(image.len() as u64)?;
+    let image_id = BlobId::of(&image);
+    contents.blob(image_id, Data::Bytes(image));
+    let index = index(&image_id);
+
+    let mut tar = TarWriter::new(&mut *out);
+    copy_blob(&mut tar, "oci-layout", &BlobId::of(OCI_LAYOUT), OCI_LAYOUT)?;
+    copy_blob(
+        &mut tar,
+        "index.json",
+        &BlobId::of(&index),
+        index.as_slice(),
+    )?;
+    for (path, blob) in &mut contents.blobs {
+        match &mut blob.data {
+            Data::Bytes(bytes) => copy_blob(&mut tar, path, &blob.id, bytes.as_slice())?,
+            Data::Spool(file) => {
+                file.seek(SeekFrom::Start(0)).map_err(WriteError::Spool)?;
+                copy_blob(&mut tar, path, &blob.id, BufReader::new(file))?;
+            }
+            Data::Input(offset) => {
+                input
+                    .seek(SeekFrom::Start(*offset))
+                    .map_err(WriteError::Input)?;
+                let mut reader = Input {
+                    inner: &mut *input,
+                    failed: None,
+                };
+                let copied = copy_blob(&mut tar, path, &blob.id, BufReader::new(&mut reader));
+                if let Some(e) = reader.failed {
+                    return Err(WriteError::Input(e));
+                }
+                copied?;
+            }
+        }
+    }
+    let (_, size) = tar.finish().map_err(WriteError::Output)?;
+    out.flush().map_err(WriteError::Output)?;
+    Ok((image_id, size))
+}
+
 /// Writes `package` to `out` as a `.ordin` file, reading each file's
 /// content from `source`. Chunk packs are spooled to anonymous temporary
 /// files in `spool` until every blob's digest is known; nothing is left
@@ -361,6 +475,7 @@ pub fn write(
     let index_digest = Digest::blake3(&chunk_index);
     let mut contents = Contents::default();
     contents.bytes(media::MANIFEST, &[], manifest);
+    add_signatures(&mut contents, package_digest, package.signatures)?;
     for (id, text) in licenses {
         contents.bytes(media::LICENSE, &[(annotations::LICENSE, id)], text.to_vec());
     }
@@ -383,37 +498,80 @@ pub fn write(
             Data::Spool(spooled),
         );
     }
-    let config = BlobId::of(EMPTY_CONFIG);
-    contents.blob(config, Data::Bytes(EMPTY_CONFIG.to_vec()));
-    let image = image_manifest(&config, &contents.layers);
-    check_image_size(image.len() as u64)?;
-    let image_id = BlobId::of(&image);
-    contents.blob(image_id, Data::Bytes(image));
-    let index = index(&image_id);
-
-    let mut tar = TarWriter::new(&mut *out);
-    copy_blob(&mut tar, "oci-layout", &BlobId::of(OCI_LAYOUT), OCI_LAYOUT)?;
-    copy_blob(
-        &mut tar,
-        "index.json",
-        &BlobId::of(&index),
-        index.as_slice(),
-    )?;
-    for (path, blob) in &mut contents.blobs {
-        match &mut blob.data {
-            Data::Bytes(bytes) => copy_blob(&mut tar, path, &blob.id, bytes.as_slice())?,
-            Data::Spool(file) => {
-                file.seek(SeekFrom::Start(0)).map_err(WriteError::Spool)?;
-                copy_blob(&mut tar, path, &blob.id, BufReader::new(file))?;
-            }
-        }
-    }
-    let (_, size) = tar.finish().map_err(WriteError::Output)?;
-    out.flush().map_err(WriteError::Output)?;
+    let (image_id, size) = finish(contents, &mut io::Cursor::new(&[][..]), out)?;
     Ok(Written {
         package: package_digest,
         image: image_id.sha256,
         chunk_index: index_digest,
+        size,
+    })
+}
+
+/// Writes the package `reader` holds to `out` again, with exactly
+/// `signatures` and every other part as it is, copied byte for byte. The
+/// result is the file [`write`] gives for the same package and
+/// signatures. The manifest, and so the package's identity, doesn't
+/// change; the image manifest's digest does.
+///
+/// # Errors
+///
+/// A signature is for another package, two are by one key, or there are
+/// too many; reading the package or writing the output failed; or a blob
+/// read back differently.
+pub fn rewrite<R: Read + Seek>(
+    reader: &mut Reader<R>,
+    signatures: &[Signature],
+    out: &mut impl Write,
+) -> Result<Written, WriteError> {
+    let package = reader.package();
+    let mut contents = Contents::default();
+    let parts = reader.parts().to_vec();
+    for (part, id) in &parts {
+        let offset = reader
+            .blob_offset(id)
+            .ok_or_else(|| WriteError::Input(io::Error::other(format!("{part} has no blob"))))?;
+        let data = Data::Input(offset);
+        match part {
+            Part::Manifest => {
+                contents.layer(media::MANIFEST, &[], *id, data);
+                add_signatures(&mut contents, package, signatures)?;
+            }
+            Part::License(license) => contents.layer(
+                media::LICENSE,
+                &[(annotations::LICENSE, license.as_str())],
+                *id,
+                data,
+            ),
+            Part::Tree(facet) => contents.layer(
+                media::TREE,
+                &[(annotations::FACET, facet.as_str())],
+                *id,
+                data,
+            ),
+            Part::ChunkIndex => contents.layer(media::CHUNK_INDEX, &[], *id, data),
+            Part::PackTable(facet) => contents.layer(
+                media::PACK_TABLE,
+                &[(annotations::FACET, facet.as_str())],
+                *id,
+                data,
+            ),
+            Part::ChunkPack(facet) => contents.layer(
+                media::CHUNK_PACK,
+                &[(annotations::FACET, facet.as_str())],
+                *id,
+                data,
+            ),
+            // The old signatures are replaced, and the other parts aren't
+            // layers.
+            _ => {}
+        }
+    }
+    let chunk_index = reader.chunk_index_digest();
+    let (image, size) = finish(contents, reader.input_mut(), out)?;
+    Ok(Written {
+        package,
+        image: image.sha256,
+        chunk_index,
         size,
     })
 }

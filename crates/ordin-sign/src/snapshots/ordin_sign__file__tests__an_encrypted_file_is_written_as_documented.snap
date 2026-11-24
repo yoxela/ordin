@@ -1,0 +1,6 @@
+---
+source: crates/ordin-sign/src/file.rs
+assertion_line: 547
+expression: text(&sealed())
+---
+{"cipher":"xchacha20-poly1305","kdf":{"algorithm":"argon2id","lanes":1,"memory":8,"passes":1,"salt":"02020202020202020202020202020202"},"key":"ed25519:8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c","nonce":"030303030303030303030303030303030303030303030303","ordin-secret-key":1,"secret":"fea4f9cb5678d99138ee15b8112a6cdf51dc09ae6f9dd9043ebb1fd8b1a7417a77e572140a8f8236056c5cde9b93aac5"}

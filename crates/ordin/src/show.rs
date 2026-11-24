@@ -9,31 +9,15 @@
 //! manifest records. The chunks are never read: checking them is
 //! `ordin verify`'s work.
 
-use std::fs::File;
 use std::io::BufReader;
-use std::path::Path;
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result};
 use ordin_archive::Reader;
 use ordin_core::Facet;
 
 use crate::cli::ShowArgs;
+use crate::files;
 use crate::output::show::{self as out, Package};
-
-/// Opens `path` for reading if it is a regular file. A FIFO or a device
-/// is refused before it is opened, so it can't make `show` wait.
-fn open(path: &Path) -> Result<File> {
-    let shown = || path.display().to_string();
-    if !std::fs::metadata(path).with_context(shown)?.is_file() {
-        bail!("{}: not a regular file", path.display());
-    }
-    let file = File::open(path).with_context(shown)?;
-    // The path may have been replaced in between.
-    if !file.metadata().with_context(shown)?.is_file() {
-        bail!("{}: not a regular file", path.display());
-    }
-    Ok(file)
-}
 
 /// The canonical entries array of a tree's canonical bytes.
 fn entries(bytes: Vec<u8>) -> Result<String> {
@@ -53,14 +37,20 @@ fn entries(bytes: Vec<u8>) -> Result<String> {
 pub fn run(args: &ShowArgs) -> Result<String> {
     let path = &args.file;
     let shown = || path.display().to_string();
-    let mut reader = Reader::open(BufReader::new(open(path)?)).with_context(shown)?;
+    let mut reader = Reader::open(BufReader::new(files::open_regular(
+        path,
+        "not a regular file",
+    )?))
+    .with_context(shown)?;
     let facets: Vec<Facet> = reader.facets().cloned().collect();
     let manifest = reader.manifest().clone();
+    let signatures = reader.signatures().to_vec();
     let package = Package {
         file: path,
         manifest: &manifest,
         package: reader.package(),
         image: reader.image(),
+        signatures: &signatures,
     };
     if args.json {
         let signed = String::from_utf8(manifest.to_canonical_bytes()?)?;

@@ -94,6 +94,7 @@ mod packing {
                 level: 3,
                 threads: std::num::NonZeroUsize::new(2).unwrap(),
             },
+            signer: None,
         }
     }
 

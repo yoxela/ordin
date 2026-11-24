@@ -16,6 +16,7 @@ use ordin_core::{Digest, Facet};
 use ordin_manifest::{
     Condition, Flush, Manifest, MigrationAction, Presentation, Setting, SettingValue, Step,
 };
+use ordin_sign::Signature;
 use ordin_tree::{Capabilities, Entry, Kind, Tree, Xattrs};
 
 /// What is shown about a package besides its manifest.
@@ -29,6 +30,8 @@ pub struct Package<'a> {
     pub package: Digest,
     /// The OCI image manifest's digest.
     pub image: Digest,
+    /// Its signatures, each checked to verify, by key.
+    pub signatures: &'a [Signature],
 }
 
 /// Whether `c` reorders text: the bidirectional formatting characters,
@@ -249,7 +252,12 @@ fn header(out: &mut Text, p: &Package<'_>, files: Option<&[(Facet, usize)]>) {
     }
     out.line(&format!("package: {}", p.package));
     out.line(&format!("image: {}", p.image));
-    out.line("signature: not signed");
+    if p.signatures.is_empty() {
+        out.line("signature: not signed");
+    }
+    for signature in p.signatures {
+        out.line(&format!("signed by {}", signature.key()));
+    }
     let names = m
         .facets
         .keys()
@@ -670,7 +678,8 @@ fn string(s: impl Display) -> String {
 
 /// The package as one canonical JSON object: `file`, `files` (each
 /// facet's tree entries, as the tree records them, when they were read),
-/// `image`, `manifest` (exactly as signed), `package` and `signature`.
+/// `image`, `manifest` (exactly as signed), `package` and `signatures`
+/// (each with its `key`).
 ///
 /// `manifest` must be the manifest's canonical bytes, and each entries
 /// text a tree's canonical entries array, so the whole is canonical.
@@ -689,10 +698,17 @@ pub fn json(p: &Package<'_>, manifest: &str, files: Option<&[(Facet, String)]>) 
     }
     let _ = write!(
         out,
-        ",\"image\":{},\"manifest\":{manifest},\"package\":{},\"signature\":null}}",
+        ",\"image\":{},\"manifest\":{manifest},\"package\":{},\"signatures\":[",
         string(p.image),
         string(p.package)
     );
+    for (i, signature) in p.signatures.iter().enumerate() {
+        if i > 0 {
+            out.push(',');
+        }
+        let _ = write!(out, "{{\"key\":{}}}", string(signature.key()));
+    }
+    out.push_str("]}");
     out
 }
 
@@ -717,6 +733,7 @@ mod tests {
             manifest: m,
             package: digest(1),
             image: Digest::new(Algorithm::Sha256, [2; 32]),
+            signatures: &[],
         }
     }
 
@@ -990,10 +1007,10 @@ mod tests {
         };
         assert_eq!(
             plain.keys().collect::<Vec<_>>(),
-            ["file", "image", "manifest", "package", "signature"]
+            ["file", "image", "manifest", "package", "signatures"]
         );
         assert_eq!(plain["manifest"], json::parse(&signed).unwrap());
-        assert_eq!(plain["signature"], Value::Null);
+        assert_eq!(plain["signatures"], Value::Array(vec![]));
         assert_eq!(plain["file"], Value::Str("nginx.ordin".into()));
         assert_eq!(plain["package"], Value::Str(digest(1).to_string()));
         let files = [
@@ -1016,5 +1033,46 @@ mod tests {
             ..p
         };
         assert!(json(&named, &signed, None).starts_with(r#"{"file":"a \"b\"","#));
+    }
+
+    #[test]
+    fn signers_are_shown_by_key() {
+        let m = everything();
+        let keys: Vec<ordin_sign::SecretKey> = (0..2)
+            .map(|_| ordin_sign::SecretKey::generate().unwrap())
+            .collect();
+        let mut signatures: Vec<Signature> =
+            keys.iter().map(|k| k.sign(&digest(1)).unwrap()).collect();
+        signatures.sort_by_key(Signature::key);
+        let p = Package {
+            signatures: &signatures,
+            ..package(&m)
+        };
+        let shown = text(&p, None);
+        assert!(!shown.contains("not signed"));
+        let expected = format!(
+            "\nsigned by {}\nsigned by {}\n",
+            signatures[0].key(),
+            signatures[1].key()
+        );
+        assert!(shown.contains(&expected), "{shown}");
+        let signed = String::from_utf8(m.to_canonical_bytes().unwrap()).unwrap();
+        let out = json(&p, &signed, None);
+        let value = json::parse(&out).unwrap();
+        assert_eq!(json::canonical(&value), out);
+        let Value::Object(map) = value else {
+            panic!("an object");
+        };
+        assert_eq!(
+            map["signatures"],
+            Value::Array(
+                signatures
+                    .iter()
+                    .map(|s| Value::Object(
+                        [("key".to_owned(), Value::Str(s.key().to_string()))].into()
+                    ))
+                    .collect()
+            )
+        );
     }
 }

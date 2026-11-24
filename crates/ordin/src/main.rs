@@ -8,15 +8,19 @@
 //! wrong.
 
 mod cli;
+mod files;
+mod keys;
 mod output;
 mod pack;
+mod passphrase;
 mod show;
+mod sign;
 
 use std::process::ExitCode;
 
 use clap::Parser;
 
-use crate::cli::{Cli, Command};
+use crate::cli::{Cli, Command, KeyCommand};
 
 fn main() -> ExitCode {
     let cli = Cli::parse();
@@ -39,6 +43,29 @@ fn main() -> ExitCode {
                 ExitCode::FAILURE
             }
         },
+        Command::Sign(args) => match sign::run(&args) {
+            Ok(signed) if args.json => {
+                output::print(&output::sign_json(&signed), &[]);
+                ExitCode::SUCCESS
+            }
+            Ok(signed) => {
+                output::print(&output::sign_text(&signed), &[]);
+                ExitCode::SUCCESS
+            }
+            Err(e) => fail(&e, args.json),
+        },
+        Command::Key(KeyCommand::Generate(args)) => match keys::generate(&args) {
+            Ok(made) if args.json => {
+                output::print(&output::key_json(&made), &[]);
+                ExitCode::SUCCESS
+            }
+            Ok(made) => {
+                let warnings = output::key_warnings(&made);
+                output::print(&output::key_text(&made), &warnings);
+                ExitCode::SUCCESS
+            }
+            Err(e) => fail(&e, args.json),
+        },
         Command::Show(args) => match show::run(&args) {
             Ok(shown) => {
                 output::print(&shown, &[]);
@@ -54,4 +81,14 @@ fn main() -> ExitCode {
             }
         },
     }
+}
+
+/// Prints an error, as JSON if asked, and fails.
+fn fail(e: &anyhow::Error, json: bool) -> ExitCode {
+    if json {
+        output::print(&output::error_json(e), &[]);
+    } else {
+        output::print_error(e);
+    }
+    ExitCode::FAILURE
 }

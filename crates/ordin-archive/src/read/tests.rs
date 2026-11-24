@@ -15,10 +15,12 @@ use proptest::prelude::*;
 use super::*;
 use crate::PackTableErrorKind;
 use crate::error::PackTableError;
+use crate::error::WriteError;
 use crate::oci::{image_manifest, index, media};
 use crate::pack::PackEntry;
 use crate::tar::TarWriter;
-use crate::write::{Options, Package, Source, Written, write};
+use crate::write::{Options, Package, Source, Written, rewrite, write};
+use ordin_sign::{PublicKey, SecretKey};
 
 const MIT: &[u8] = b"Permission is hereby granted, free of charge...\n";
 
@@ -211,12 +213,17 @@ impl Sample {
     }
 
     fn write(&self) -> (Vec<u8>, Written) {
+        self.write_signed(&[]).unwrap()
+    }
+
+    fn write_signed(&self, signatures: &[Signature]) -> Result<(Vec<u8>, Written), WriteError> {
         let manifest = self.manifest();
         let package = Package {
             manifest: &manifest,
             trees: &self.trees,
             licenses: &self.licenses,
             chunking: params(),
+            signatures,
         };
         let spool = tempfile::tempdir().unwrap();
         let mut out = Vec::new();
@@ -229,9 +236,13 @@ impl Sample {
             },
             spool.path(),
             &mut out,
-        )
-        .unwrap();
-        (out, written)
+        )?;
+        Ok((out, written))
+    }
+
+    /// The package's identity.
+    fn package(&self) -> Digest {
+        Digest::blake3(&self.manifest().to_canonical_bytes().unwrap())
     }
 }
 
@@ -349,6 +360,7 @@ impl Apart {
                 let bytes = read_at(&mut r.input, blob.offset, id.size, &part).unwrap();
                 let (media_type, notes) = match part {
                     Part::Manifest => (media::MANIFEST, vec![]),
+                    Part::Signature(key) => (media::SIGNATURE, vec![(annotations::KEY, key)]),
                     Part::License(id) => (media::LICENSE, vec![(annotations::LICENSE, id)]),
                     Part::Tree(f) => (media::TREE, vec![(annotations::FACET, f.to_string())]),
                     Part::ChunkIndex => (media::CHUNK_INDEX, vec![]),
@@ -1598,5 +1610,268 @@ proptest! {
         prop_assert_eq!(&all.trees, &s.trees.values().cloned().collect::<Vec<_>>());
         prop_assert_eq!(all.files, contents.into_values().flatten().collect::<Vec<_>>());
         prop_assert_eq!(all.licenses, vec![MIT.to_vec()]);
+    }
+}
+
+// Signatures (ORD-140).
+
+/// Fresh keys, sorted by public key.
+fn keys(n: usize) -> Vec<SecretKey> {
+    let mut keys: Vec<SecretKey> = (0..n).map(|_| SecretKey::generate().unwrap()).collect();
+    keys.sort_by_key(|k| k.public_key());
+    keys
+}
+
+fn signed(sample: &Sample, keys: &[SecretKey]) -> Vec<Signature> {
+    keys.iter()
+        .map(|k| k.sign(&sample.package()).unwrap())
+        .collect()
+}
+
+#[test]
+fn a_signed_package_reads_back_its_signatures_sorted_by_key() {
+    let sample = Sample::new();
+    let keys = keys(2);
+    let mut signatures = signed(&sample, &keys);
+    signatures.reverse();
+    let (bytes, written) = sample.write_signed(&signatures).unwrap();
+    let r = open(bytes.clone()).unwrap();
+    let read: Vec<PublicKey> = r.signatures().iter().map(Signature::key).collect();
+    let expected: Vec<PublicKey> = keys.iter().map(|k| k.public_key()).collect();
+    assert_eq!(read, expected);
+    assert!(r.signatures().iter().all(|s| s.package() == r.package()));
+    assert_eq!(
+        r.parts().get(1).map(|(p, _)| p.clone()),
+        Some(Part::Signature(expected[0].to_string()))
+    );
+    // Signing changes the image manifest, never the package or its content.
+    let (unsigned, plain) = sample.write_signed(&[]).unwrap();
+    assert_eq!(written.package, plain.package);
+    assert_ne!(written.image, plain.image);
+    assert_eq!(
+        read_all(bytes).unwrap(),
+        read_all(unsigned.clone()).unwrap()
+    );
+    assert!(open(unsigned).unwrap().signatures().is_empty());
+}
+
+#[test]
+fn signing_again_gives_what_signing_while_writing_gives() {
+    let sample = Sample::new();
+    let keys = keys(2);
+    let signatures = signed(&sample, &keys);
+    let (unsigned, _) = sample.write_signed(&[]).unwrap();
+    let rewritten = |bytes: Vec<u8>, with: &[Signature]| {
+        let mut r = open(bytes).unwrap();
+        let mut out = Vec::new();
+        let written = rewrite(&mut r, with, &mut out).unwrap();
+        (out, written)
+    };
+    let (one, written) = rewritten(unsigned.clone(), &signatures[..1]);
+    let (expected, expected_written) = sample.write_signed(&signatures[..1]).unwrap();
+    assert_eq!(one, expected);
+    assert_eq!(written, expected_written);
+    let (both, _) = rewritten(one.clone(), &[signatures[1].clone(), signatures[0].clone()]);
+    assert_eq!(both, sample.write_signed(&signatures).unwrap().0);
+    let (none, _) = rewritten(both, &[]);
+    assert_eq!(none, unsigned);
+}
+
+#[test]
+fn the_writer_refuses_signatures_a_reader_would_refuse() {
+    let sample = Sample::new();
+    let key = &keys(1)[0];
+    let other = Digest::blake3(b"another manifest");
+    let e = sample
+        .write_signed(&[key.sign(&other).unwrap()])
+        .unwrap_err();
+    assert!(
+        matches!(&e, WriteError::SignatureFor { signed, package, .. }
+            if *signed == other && *package == sample.package()),
+        "{e}"
+    );
+    let twice = key.sign(&sample.package()).unwrap();
+    let e = sample.write_signed(&[twice.clone(), twice]).unwrap_err();
+    assert_eq!(
+        e.to_string(),
+        format!(
+            "two signatures are by {}; a package carries one per key",
+            key.public_key()
+        )
+    );
+    let many = signed(&sample, &keys(MAX_SIGNATURES + 1));
+    assert!(matches!(
+        sample.write_signed(&many).unwrap_err(),
+        WriteError::TooManySignatures { count, max: MAX_SIGNATURES } if count == MAX_SIGNATURES + 1
+    ));
+    assert!(sample.write_signed(&many[..MAX_SIGNATURES]).is_ok());
+}
+
+#[test]
+fn a_package_carries_at_most_64_signatures() {
+    let sample = Sample::new();
+    let signatures = signed(&sample, &keys(MAX_SIGNATURES));
+    let mut apart = Apart::of(&sample.write_signed(&signatures).unwrap().0);
+    assert!(open(apart.assemble()).is_ok());
+    let extra = keys(1).remove(0);
+    let piece = Piece {
+        media_type: media::SIGNATURE,
+        // Sorts after every key: g is after every hex digit.
+        notes: vec![(annotations::KEY, "ed25519:g".to_owned())],
+        bytes: extra.sign(&sample.package()).unwrap().to_bytes(),
+        id: None,
+    };
+    apart.layers.insert(MAX_SIGNATURES + 1, piece);
+    assert!(matches!(
+        refused(apart.assemble()),
+        (
+            Part::ImageManifest,
+            ReadErrorKind::TooManySignatures {
+                max: MAX_SIGNATURES
+            }
+        )
+    ));
+}
+
+/// The sample with one signature, taken apart.
+fn signed_apart() -> (Sample, Apart, SecretKey) {
+    let sample = Sample::new();
+    let key = keys(1).remove(0);
+    let bytes = sample
+        .write_signed(&[key.sign(&sample.package()).unwrap()])
+        .unwrap()
+        .0;
+    (sample, Apart::of(&bytes), key)
+}
+
+#[test]
+fn a_signature_must_verify_and_be_for_this_package_by_its_key() {
+    let (sample, apart, key) = signed_apart();
+    let named = key.public_key().to_string();
+    let part = Part::Signature(named.clone());
+    let at = apart.find(media::SIGNATURE, &named);
+
+    let mut other = apart.clone();
+    other.layers[at].bytes = key.sign(&Digest::blake3(b"x")).unwrap().to_bytes();
+    let (failed, kind) = refused(other.assemble());
+    assert_eq!(failed, part);
+    assert!(
+        matches!(&kind, ReadErrorKind::Disagrees(m)
+            if *m == format!("the signature is for package {}, not this package, {}", Digest::blake3(b"x"), sample.package())),
+        "{kind}"
+    );
+
+    let someone = keys(1).remove(0);
+    let mut by_another = apart.clone();
+    by_another.layers[at].bytes = someone.sign(&sample.package()).unwrap().to_bytes();
+    let (failed, kind) = refused(by_another.assemble());
+    assert_eq!(failed, part);
+    let expected = format!(
+        "the layer is annotated with {named}, but the signature is by {}",
+        someone.public_key()
+    );
+    assert!(
+        matches!(&kind, ReadErrorKind::Disagrees(m) if *m == expected),
+        "{kind}"
+    );
+
+    let mut garbage = apart.clone();
+    let mut bytes = garbage.layers[at].bytes.clone();
+    let last = bytes.len() - 3;
+    bytes[last] = if bytes[last] == b'0' { b'1' } else { b'0' };
+    garbage.layers[at].bytes = bytes;
+    let (failed, kind) = refused(garbage.assemble());
+    assert_eq!(failed, part);
+    assert!(
+        matches!(&kind, ReadErrorKind::Signature(ordin_sign::Error::BadSignature { key }) if *key == named),
+        "{kind}"
+    );
+
+    let mut large = apart.clone();
+    large.layers[at].bytes = vec![b' '; MAX_SIGNATURE_SIZE + 1];
+    let (failed, kind) = refused(large.assemble());
+    assert_eq!(failed, part);
+    assert!(matches!(kind, ReadErrorKind::TooLarge { .. }), "{kind}");
+    let e = open(large.assemble()).unwrap_err().to_string();
+    assert!(e.starts_with(&format!("the signature by {named}: ")), "{e}");
+}
+
+#[test]
+fn signature_layers_are_annotated_and_sorted_by_key() {
+    let sample = Sample::new();
+    let keys = keys(2);
+    let apart = Apart::of(&sample.write_signed(&signed(&sample, &keys)).unwrap().0);
+    let mut swapped = apart.clone();
+    swapped.layers.swap(1, 2);
+    assert!(matches!(
+        refused(swapped.assemble()),
+        (
+            Part::ImageManifest,
+            ReadErrorKind::LayerOrder { index: 2, .. }
+        )
+    ));
+    let mut twice = apart.clone();
+    twice.layers[2] = twice.layers[1].clone();
+    assert!(matches!(
+        refused(twice.assemble()),
+        (
+            Part::ImageManifest,
+            ReadErrorKind::LayerOrder { index: 2, .. }
+        )
+    ));
+    let mut bare = apart.clone();
+    bare.layers[1].notes.clear();
+    assert!(matches!(
+        refused(bare.assemble()),
+        (Part::ImageManifest, ReadErrorKind::Malformed(m)) if m.contains("com.ordinpm.key")
+    ));
+    let mut after = apart;
+    let signature = after.layers.remove(1);
+    after.layers.insert(2, signature);
+    assert!(matches!(
+        refused(after.assemble()),
+        (Part::ImageManifest, ReadErrorKind::LayerOrder { .. })
+    ));
+}
+
+/// A reader that starts failing when told to.
+struct Flaky {
+    inner: Cursor<Vec<u8>>,
+    fail: std::rc::Rc<std::cell::Cell<(bool, bool)>>,
+}
+
+impl Read for Flaky {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        if self.fail.get().0 {
+            return Err(io::Error::other("the disk went away"));
+        }
+        self.inner.read(buf)
+    }
+}
+
+impl Seek for Flaky {
+    fn seek(&mut self, to: SeekFrom) -> io::Result<u64> {
+        if self.fail.get().1 {
+            return Err(io::Error::other("no seeking"));
+        }
+        self.inner.seek(to)
+    }
+}
+
+#[test]
+fn signing_again_says_when_reading_the_package_fails() {
+    for (read, seek, said) in [
+        (true, false, "reading the package: the disk went away"),
+        (false, true, "reading the package: no seeking"),
+    ] {
+        let fail = std::rc::Rc::new(std::cell::Cell::new((false, false)));
+        let mut r = Reader::open(Flaky {
+            inner: Cursor::new(sample_file()),
+            fail: fail.clone(),
+        })
+        .unwrap();
+        fail.set((read, seek));
+        let e = rewrite(&mut r, &[], &mut Vec::new()).unwrap_err();
+        assert_eq!(e.to_string(), said);
     }
 }

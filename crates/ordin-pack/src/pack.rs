@@ -7,6 +7,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::io::{self, BufWriter, Write};
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use ordin_archive::{Options as WriteOptions, Package, WriteError, Written};
 use ordin_core::{Arch, Digest, Facet, FilePath, PackageName};
@@ -15,6 +16,7 @@ use ordin_manifest::spdx;
 use ordin_manifest::{
     FacetEntry, Kind as PackageKind, License, Manifest, Presentation, Provide, State,
 };
+use ordin_sign::SecretKey;
 use ordin_tree::chunk::ChunkParams;
 use ordin_tree::{Kind, TreePath};
 use ordin_version::Version;
@@ -56,6 +58,8 @@ pub struct PackOptions {
     pub chunking: ChunkParams,
     /// How the file is written.
     pub write: WriteOptions,
+    /// The key to sign the package with, if any.
+    pub signer: Option<Arc<SecretKey>>,
 }
 
 /// Where [`pack`] writes the package.
@@ -96,6 +100,9 @@ pub struct Packed {
 /// Why a package couldn't be made.
 #[derive(Debug, thiserror::Error)]
 pub enum PackError {
+    /// The package couldn't be signed.
+    #[error("signing: {0}")]
+    Sign(#[from] ordin_sign::Error),
     /// The install root couldn't be walked.
     #[error("{0}")]
     Walk(#[from] WalkError),
@@ -407,7 +414,11 @@ pub fn pack(options: &PackOptions, out: &Output) -> Result<Packed, PackError> {
             migrations: Vec::new(),
         });
     }
-    manifest.to_canonical_bytes()?;
+    let identity = Digest::blake3(&manifest.to_canonical_bytes()?);
+    let signatures = match &options.signer {
+        Some(key) => vec![key.sign(&identity)?],
+        None => Vec::new(),
+    };
 
     let output = |source| PackError::Output {
         path: out.to_path_buf(),
@@ -424,6 +435,7 @@ pub fn pack(options: &PackOptions, out: &Output) -> Result<Packed, PackError> {
         trees: &trees,
         licenses: &options.license_texts,
         chunking: options.chunking,
+        signatures: &signatures,
     };
     let written = ordin_archive::write(&package, &mut source, &options.write, &dir, &mut writer)?;
     writer.flush().map_err(output)?;

@@ -7,6 +7,7 @@ A `.ordin` file holds one package. It is an [OCI image layout](https://github.co
 
 This document is the reference for the container. The parts inside it have their own references:
 - the manifest: `ordin-manifest`'s `SCHEMA.md`
+- signatures: `ordin-sign`'s `FORMAT.md`
 - trees: `ordin-tree`'s `FORMAT.md`
 - the chunk index: `ordin-tree`'s `CHUNK-INDEX.md`
 
@@ -68,21 +69,21 @@ This includes the config descriptor and the manifest's descriptor in `index.json
 | Order | Part | Media type | Annotations besides `com.ordinpm.blake3` |
 | --- | --- | --- | --- |
 | 1 | The Ordin manifest | `application/vnd.ordin.manifest.v1+json` | |
-| 2 | One license text per license ID, by ID | `application/vnd.ordin.license.v1` | `com.ordinpm.license`: the SPDX ID |
-| 3 | One tree per facet, by facet | `application/vnd.ordin.tree.v1+json` | `com.ordinpm.facet` |
-| 4 | The chunk index | `application/vnd.ordin.chunk-index.v1+json` | |
-| 5 | One pack table per facet, by facet | `application/vnd.ordin.pack-table.v1+json` | `com.ordinpm.facet` |
-| 6 | One chunk pack per facet, by facet | `application/vnd.ordin.chunk-pack.v1+zstd` | `com.ordinpm.facet` |
+| 2 | One signature per key, by key; none if the package is unsigned | `application/vnd.ordin.signature.v1+json` | `com.ordinpm.key`: the key, `ed25519:` and its hex |
+| 3 | One license text per license ID, by ID | `application/vnd.ordin.license.v1` | `com.ordinpm.license`: the SPDX ID |
+| 4 | One tree per facet, by facet | `application/vnd.ordin.tree.v1+json` | `com.ordinpm.facet` |
+| 5 | The chunk index | `application/vnd.ordin.chunk-index.v1+json` | |
+| 6 | One pack table per facet, by facet | `application/vnd.ordin.pack-table.v1+json` | `com.ordinpm.facet` |
+| 7 | One chunk pack per facet, by facet | `application/vnd.ordin.chunk-pack.v1+zstd` | `com.ordinpm.facet` |
 
 **What the parts must agree on:**
 - **Facets and texts.** There is a tree, pack table and chunk pack for every facet the manifest lists, and a text for every license ID it records, each with the digest the manifest records.
+- **Signatures.** Each signature is by the key its annotation names, and signs this package's identity. A package carries at most 64.
 - **The chunk index** lists every file in any facet at or above its whole-file threshold, once per content.
 
-**What is still to come:**
-- **ORD-140** adds the manifest's signature as a layer.
-- **Legacy scripts,** when a package has any, arrive as a layer with a later story.
+**Signing changes only the container.** Adding, replacing or removing a signature leaves the manifest, and so the package's identity, as it is. Every other blob is copied byte for byte; only the signature layers, the image manifest and `index.json` change. A package signed as it is written and the same package signed afterwards are the same file.
 
-A reader refuses a layer it doesn't know, so both are format changes when they arrive.
+**What is still to come:** legacy scripts, when a package has any, arrive as a layer with a later story. A reader refuses a layer it doesn't know, so that is a format change when it arrives.
 
 ## The chunk index is not signed
 
@@ -147,9 +148,10 @@ A `.ordin` file is outside input. A reader accepts only what a writer of this fo
 **Opening reads only the small parts,** and checks:
 - **The archive.** Every header must be exactly the one this document gives for its name and size. The entries must be `oci-layout`, `index.json`, then blobs named `blobs/sha256/<64 lowercase hex digits>` in strictly increasing order. Padding must be zeros, and the file must end with exactly two zero blocks.
 - **The OCI files.** `oci-layout` must be the fixed text. `index.json` and the image manifest must be exactly the canonical JSON this document gives for their descriptors. The config must be the empty descriptor with its `{}` blob.
-- **The layers.** They must come in the order of the table above, each of a known type, with exactly the annotations it lists. Licenses and facets must be in increasing order, with no repeats.
+- **The layers.** They must come in the order of the table above, each of a known type, with exactly the annotations it lists. Keys, licenses and facets must be in increasing order, with no repeats.
 - **The blobs.** Every blob a descriptor names must be in the archive with its recorded size, and every blob in the archive must be named. Two descriptors that name one blob must record the same digests. Each blob that is read is checked against its SHA-256 and BLAKE3 digests.
 - **The manifest** must follow its schema. The layers must have a tree, pack table and chunk pack for every facet it lists and no others, each tree with the digest it records, and a text for every license ID it records and no others, each with the digest it records.
+- **Each signature** must follow its format, verify, be by the key its annotation names, and sign this package. A signature that fails any of these is refused, never skipped. Whether a key is trusted is for whoever reads the package to decide.
 
 **Every other part is read when asked for,** and checked then:
 - **A tree** must follow its format, and its files' sizes must add up to the size the manifest records for the facet.
@@ -165,6 +167,7 @@ A `.ordin` file is outside input. A reader accepts only what a writer of this fo
 | `index.json` | 4 KiB | It lists one manifest, about 400 bytes. |
 | The image manifest | 4 MiB | The size every OCI registry must accept. |
 | The manifest | 1 MiB | The manifest's own limit. |
+| Signatures | 64, of at most 1 KiB each | One per key: enough for a publisher and rebuilders, and each is checked when the file is opened. |
 | A license text | 1 MiB | `ordin pack` reads no more. |
 | A tree, the chunk index | 64 MiB each | Their own limits. |
 | A pack table | 786,432 chunks, 96,731,186 bytes | One chunk per file a tree can hold, plus every chunk the chunk index can list. |
