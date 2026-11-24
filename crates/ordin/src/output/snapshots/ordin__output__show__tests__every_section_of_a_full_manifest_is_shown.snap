@@ -1,0 +1,152 @@
+---
+source: crates/ordin/src/output/show.rs
+assertion_line: 782
+expression: "text(&package(&m), None)"
+---
+nginx 1:1.27.3-2 (x86_64, base)
+HTTP and reverse proxy server
+
+  nginx is an HTTP server.
+  It is also a reverse proxy.
+
+homepage: https://nginx.org/
+license: BSD-2-Clause OR MIT (texts: BSD-2-Clause, MIT)
+license presentation: display
+source: https://github.com/nginx/nginx at release-1.27.3
+applies live: yes
+needs a reboot: yes
+support: active until 2027-06-30, security fixes until 2028-06-30, then nginx-1.29
+package: blake3:0101010101010101010101010101010101010101010101010101010101010101
+image: sha256:0202020202020202020202020202020202020202020202020202020202020202
+signature: not signed
+
+facets:
+  debug         8.8 KiB, not installed by default
+  doc           69.3 KiB, not installed by default
+  locale:pt_BR  100 B
+  runtime       1.8 MiB
+
+requires:
+  cap:zlib or zlib-ng-compat
+  so:libc.so.6@GLIBC_2.38
+  so:libssl.so.3
+
+requires while applying:
+  systemd
+
+requires at boot:
+  cap:network
+
+provides:
+  cap:http-server
+  cap:reverse-proxy = 1.27
+  so:libngx.so.1
+  so:libngx.so.1@NGX_1.0
+
+conflicts:
+  nginx-legacy < 1.20
+
+recommends:
+  logrotate
+
+supplements:
+  geoip-database if nginx-geoip
+
+obsoletes:
+  nginx-core < 1.27
+  nginx-light
+
+replaces:
+  nginx-common < 1.27
+
+users:
+  nginx (system, home /var/lib/nginx, shell /usr/sbin/nologin, groups adm, www-data, "nginx web server")
+  www-data (system, home /var/www)
+
+groups:
+  nginx (system)
+  webadmins
+
+units:
+  nginx-reload.timer: disable
+  nginx.service: enable, if setting.start-on-boot
+  nginx@.service: disable, if setting.mpm = worker
+
+config:
+  /etc/nginx/nginx.conf from /usr/share/ordin/defaults/nginx/nginx.conf (three-way)
+  /etc/nginx/sites-enabled from /usr/share/ordin/defaults/nginx/sites (drop-in)
+
+alternatives:
+  httpd: /usr/sbin/httpd -> /usr/sbin/nginx, priority 50
+    /usr/share/man/man8/httpd.8.gz -> /usr/share/man/man8/nginx.8.gz
+    /usr/share/man/man8/httpd.8.gz.1 -> /usr/share/man/man8/nginx.8.gz
+  www-browser: /usr/bin/www-browser -> /usr/bin/nginx-browse, priority -10
+
+triggers:
+  systemd-daemon-reload on /usr/lib/nginx/modules
+
+setuid files:
+  /usr/lib/nginx/helper
+
+boot:
+  kernel /usr/lib/modules/6.12.116/vmlinuz
+  a unified kernel image
+  initrd extension /usr/lib/ordin/initrd/nginx.ext
+
+state:
+  version 4, migration reversible
+  /var/cache/nginx: cache, nginx:nginx 0755, emptied on upgrade, owners fixed recursively
+  /var/lib/nginx: data, nginx:nginx 0750, on remove: archive
+  /var/log/nginx: log, nginx:adm 0750
+  /var/log/nginx/access.log: created if missing, nginx:root 0644
+  /var/log/nginx/error.log: created if missing, nginx:root 0640
+  /var/lib/nginx/default.db: copied once from /usr/share/nginx/default.db
+  /var/lib/nginx/z.db: copied once from /usr/share/nginx/z.db
+  /var/lib/nginx/old-index: removed on upgrade
+  migration from 1 to 2: runs /usr/lib/nginx/migrate-1-2
+  migration from 2 to 3: 5 operations
+  migration from 3 to 4: runs /usr/lib/nginx/migrate-3-4, undone by /usr/lib/nginx/migrate-4-3
+
+settings:
+  cluster-name (string, required)
+  listen-port (port, default 80): Port the default site listens on
+  mailname (string, default "{host.fqdn}")
+  modules (multichoice, default [geoip, xslt])
+  mpm (choice, default "event")
+  server-names (list, default [localhost, example.org])
+  start-on-boot (bool, default true)
+  web-root (path, default "/srv/www")
+  workers (int, default 4)
+
+programs run:
+  check: /usr/lib/nginx/check-hw (timeout 30 s)
+  health: /usr/sbin/nginx -t (timeout 300 s, network, writes /run/nginx, may run /usr/bin/curl, legacy)
+
+tests:
+  config: /usr/sbin/nginx -t (timeout 60 s)
+  listen: /usr/lib/nginx/test-listen (timeout 30 s)
+
+security policy:
+  SELinux module /usr/share/selinux/nginx.cil
+  SELinux boolean httpd_can_network_connect = true
+  SELinux port http_port_t tcp 8443
+  SELinux file context /srv/www(/.*)? httpd_sys_content_t (all)
+  SELinux file context /var/run/nginx.sock httpd_var_run_t (socket)
+  AppArmor profile /etc/apparmor.d/usr.sbin.nginx
+  AppArmor tunable nginx_root = /srv/www
+
+delegated payload:
+  updated by self /opt/ordin/delegated/nginx/bin/updater, from facet runtime
+  requires indexed evidence, quarantine if not, replace on upgrade
+  path bin/
+  path lib/
+
+fixes:
+  CVE-2026-1234
+  fix-1234
+
+notices:
+  config-moved:
+    The default site moved to sites-enabled.
+  restart-needed:
+    Restart after changing modules.

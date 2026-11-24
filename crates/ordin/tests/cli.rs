@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // SPDX-FileCopyrightText: 2026 The Ordin Authors
 
-//! The `ordin` program, run as a packager runs it (ORD-120).
+//! The `ordin` program, run as a packager runs it (ORD-120), and as an
+//! admin looks at a package (ORD-132).
 
 #[cfg(test)]
 mod cli {
@@ -386,5 +387,210 @@ mod cli {
         let o = ordin(dir.path(), &["--version"]);
         assert_eq!(o.status.code(), Some(0));
         assert_eq!(stdout(&o), format!("ordin {}\n", env!("CARGO_PKG_VERSION")));
+    }
+
+    /// The fixture packed with a license, as `hello.ordin`.
+    fn packed() -> TempDir {
+        let dir = fixture();
+        let o = ordin(
+            dir.path(),
+            &[
+                "pack",
+                "root",
+                "--name",
+                "hello",
+                "--version",
+                "2.12",
+                "--license",
+                "MIT",
+                "--license-file",
+                "MIT=COPYING",
+                "--summary",
+                "Prints a greeting",
+                "-o",
+                "hello.ordin",
+            ],
+        );
+        assert_eq!(o.status.code(), Some(0), "{}", stderr(&o));
+        dir
+    }
+
+    #[test]
+    fn show_says_what_a_package_holds() {
+        let dir = packed();
+        let o = ordin(dir.path(), &["show", "hello.ordin"]);
+        assert_eq!(o.status.code(), Some(0), "{}", stderr(&o));
+        assert_eq!(stderr(&o), "");
+        let out = stdout(&o);
+        let lines: Vec<&str> = out.lines().collect();
+        assert_eq!(
+            lines[..4],
+            [
+                "hello 2.12-1 (noarch, base)",
+                "Prints a greeting",
+                "",
+                "license: MIT (texts: MIT)"
+            ]
+        );
+        assert!(lines[4].starts_with("package: blake3:"), "{out}");
+        assert!(lines[5].starts_with("image: sha256:"), "{out}");
+        assert_eq!(
+            lines[6..],
+            [
+                "signature: not signed",
+                "",
+                "facets:",
+                "  doc      12 B",
+                "  runtime  21 B",
+                "",
+                "requires:",
+                "  file:/usr/bin/sh"
+            ]
+        );
+        assert!(!out.contains("entries in"));
+    }
+
+    #[test]
+    fn show_facets_lists_each_facets_entries() {
+        let dir = packed();
+        let o = ordin(dir.path(), &["show", "hello.ordin", "--facets"]);
+        assert_eq!(o.status.code(), Some(0), "{}", stderr(&o));
+        let out = stdout(&o);
+        assert!(
+            out.contains("  doc      12 B, 5 entries\n  runtime  21 B, 3 entries\n"),
+            "{out}"
+        );
+        let listed = out.split_once("\nentries in doc:\n").unwrap().1;
+        assert_eq!(
+            listed,
+            "  drwxr-xr-x root:root    - /usr\n\
+             \x20 drwxr-xr-x root:root    - /usr/share\n\
+             \x20 drwxr-xr-x root:root    - /usr/share/doc\n\
+             \x20 drwxr-xr-x root:root    - /usr/share/doc/hello\n\
+             \x20 -rw-r--r-- root:root 12 B /usr/share/doc/hello/README\n\
+             \n\
+             entries in runtime:\n\
+             \x20 drwxr-xr-x root:root    - /usr\n\
+             \x20 drwxr-xr-x root:root    - /usr/bin\n\
+             \x20 -rwxr-xr-x root:root 21 B /usr/bin/hello\n"
+        );
+    }
+
+    #[test]
+    fn show_json_holds_the_manifest_as_signed() {
+        let dir = packed();
+        let packed = ordin(
+            dir.path(),
+            &[
+                "pack",
+                "root",
+                "--name",
+                "hello",
+                "--version",
+                "2.12",
+                "--license",
+                "MIT",
+                "--license-file",
+                "MIT=COPYING",
+                "--summary",
+                "Prints a greeting",
+                "-o",
+                "again.ordin",
+                "--json",
+            ],
+        );
+        let packed: Value = serde_json::from_str(&stdout(&packed)).unwrap();
+        let o = ordin(dir.path(), &["show", "hello.ordin", "--json"]);
+        assert_eq!(o.status.code(), Some(0), "{}", stdout(&o));
+        assert_eq!(stderr(&o), "");
+        let text = stdout(&o);
+        assert!(!text.ends_with('\n'), "one canonical JSON object");
+        let v: Value = serde_json::from_str(&text).unwrap();
+        let keys: Vec<&String> = v.as_object().unwrap().keys().collect();
+        assert_eq!(keys, ["file", "image", "manifest", "package", "signature"]);
+        assert_eq!(v["file"], "hello.ordin");
+        assert_eq!(v["package"], packed["package"]);
+        assert_eq!(v["image"], packed["image"]);
+        assert_eq!(v["signature"], Value::Null);
+        assert_eq!(v["manifest"]["name"], "hello");
+        assert_eq!(v["manifest"]["summary"], "Prints a greeting");
+        assert_eq!(v["manifest"]["facets"]["doc"]["size"], 12);
+        let o = ordin(dir.path(), &["show", "hello.ordin", "--json", "--facets"]);
+        assert_eq!(o.status.code(), Some(0), "{}", stdout(&o));
+        let v: Value = serde_json::from_str(&stdout(&o)).unwrap();
+        assert_eq!(v["files"]["doc"].as_array().unwrap().len(), 5);
+        assert_eq!(
+            v["files"]["runtime"][2],
+            serde_json::json!({
+                "content": v["files"]["runtime"][2]["content"],
+                "fsverity": v["files"]["runtime"][2]["fsverity"],
+                "mode": "0755",
+                "path": "/usr/bin/hello",
+                "size": 21,
+                "type": "file"
+            })
+        );
+    }
+
+    #[test]
+    fn show_refuses_what_isnt_a_package() {
+        let dir = packed();
+        let bytes = fs::read(dir.path().join("hello.ordin")).unwrap();
+        fs::write(dir.path().join("cut.ordin"), &bytes[..bytes.len() / 2]).unwrap();
+        let cases: &[(&str, &str)] = &[
+            (
+                "missing.ordin",
+                "ordin: error: missing.ordin: No such file or directory (os error 2)\n",
+            ),
+            ("root", "ordin: error: root: not a regular file\n"),
+            ("/dev/null", "ordin: error: /dev/null: not a regular file\n"),
+            (
+                "cut.ordin",
+                "ordin: error: cut.ordin: the archive: the file ends inside it\n",
+            ),
+        ];
+        for (file, message) in cases {
+            let o = ordin(dir.path(), &["show", file]);
+            assert_eq!(o.status.code(), Some(1), "{file}");
+            assert_eq!(stdout(&o), "", "{file}");
+            assert_eq!(stderr(&o), *message, "{file}");
+        }
+        let o = ordin(dir.path(), &["show", "root", "--json"]);
+        assert_eq!(o.status.code(), Some(1));
+        assert_eq!(stderr(&o), "");
+        assert_eq!(stdout(&o), r#"{"error":"root: not a regular file"}"#);
+        let o = ordin(dir.path(), &["show"]);
+        assert_eq!(o.status.code(), Some(2));
+    }
+
+    #[test]
+    fn show_reads_a_tree_only_when_its_entries_are_listed() {
+        let dir = packed();
+        let mut bytes = fs::read(dir.path().join("hello.ordin")).unwrap();
+        let at = bytes
+            .windows(12)
+            .position(|w| w == b"hello/README")
+            .unwrap();
+        assert_eq!(
+            bytes.windows(12).filter(|w| *w == b"hello/README").count(),
+            1,
+            "only the doc tree names it"
+        );
+        bytes[at + 6] = b'S';
+        fs::write(dir.path().join("hello.ordin"), &bytes).unwrap();
+        let o = ordin(dir.path(), &["show", "hello.ordin"]);
+        assert_eq!(o.status.code(), Some(0), "{}", stderr(&o));
+        for args in [
+            &["show", "hello.ordin", "--facets"][..],
+            &["show", "hello.ordin", "--facets", "--json"],
+        ] {
+            let o = ordin(dir.path(), args);
+            assert_eq!(o.status.code(), Some(1), "{args:?}");
+            let said = format!("{}{}", stdout(&o), stderr(&o));
+            assert!(
+                said.contains("hello.ordin: the tree for facet doc: its content isn't what its descriptor records"),
+                "{said}"
+            );
+        }
     }
 }

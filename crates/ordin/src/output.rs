@@ -8,6 +8,8 @@
 //! canonical form) on standard output instead, errors included, and
 //! nothing on standard error.
 
+pub mod show;
+
 use std::collections::BTreeMap;
 use std::io::Write;
 

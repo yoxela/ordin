@@ -26,6 +26,7 @@ ordin-tree = { path = "../ordin-tree" }
 ordin-version = { path = "../ordin-version" }
 
 [dev-dependencies]
+insta.workspace = true
 serde_json.workspace = true
 tempfile.workspace = true
 
