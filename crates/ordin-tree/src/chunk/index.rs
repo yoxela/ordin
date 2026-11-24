@@ -6,7 +6,7 @@
 
 use std::collections::BTreeMap;
 
-use ordin_core::json::{self, Value};
+use ordin_core::json::{self, JsonError, LayoutError, Member, Value};
 use ordin_core::{Algorithm, Digest};
 
 use super::error::{IndexError, IndexErrorKind};
@@ -27,6 +27,14 @@ const FORMAT: &str = "ordin-chunk-index";
 
 /// The only chunking algorithm format 1 knows.
 const ALGORITHM: &str = "fastcdc-2020";
+
+/// The most JSON values the chunking settings, a chunk or a content
+/// digest may hold. The settings hold the most: their object and six
+/// fields.
+const LEAF_VALUES: usize = 16;
+
+/// The most JSON values an unknown format version may hold to be shown.
+const VERSION_VALUES: usize = 64;
 
 type R<T> = Result<T, IndexError>;
 
@@ -194,29 +202,58 @@ fn int(n: impl TryInto<i64>) -> Value {
     Value::Int(n.try_into().unwrap_or(i64::MAX))
 }
 
-/// The index's JSON value.
-fn encode(params: &ChunkParams, files: &[IndexFile]) -> Value {
-    let chunking = BTreeMap::from([
+fn encode_chunking(params: &ChunkParams) -> Value {
+    Value::Object(BTreeMap::from([
         ("algorithm".to_owned(), s(ALGORITHM)),
         ("minimum".to_owned(), int(params.minimum())),
         ("average".to_owned(), int(params.average())),
         ("maximum".to_owned(), int(params.maximum())),
         ("whole-below".to_owned(), int(params.whole_below())),
         ("normalization".to_owned(), int(params.normalization())),
-    ]);
+    ]))
+}
+
+fn encode_chunk(c: &ChunkRef) -> Value {
+    Value::Object(BTreeMap::from([
+        ("digest".to_owned(), s(c.digest)),
+        ("length".to_owned(), int(c.length)),
+    ]))
+}
+
+/// The index's canonical text, written a chunk at a time.
+fn text(params: &ChunkParams, files: &[IndexFile]) -> String {
+    let mut out = String::from("{\"chunking\":");
+    json::write_canonical(&encode_chunking(params), &mut out);
+    out.push_str(",\"files\":[");
+    for (i, f) in files.iter().enumerate() {
+        if i > 0 {
+            out.push(',');
+        }
+        out.push_str("{\"chunks\":[");
+        for (c, chunk) in f.chunks.iter().enumerate() {
+            if c > 0 {
+                out.push(',');
+            }
+            json::write_canonical(&encode_chunk(chunk), &mut out);
+        }
+        out.push_str("],\"content\":");
+        json::write_canonical(&s(f.content), &mut out);
+        out.push('}');
+    }
+    out.push_str("],\"");
+    out.push_str(FORMAT);
+    out.push_str("\":1}");
+    out
+}
+
+/// The index's JSON value: the encoding before [`text`], kept for the
+/// tests to compare with.
+#[cfg(test)]
+fn encode(params: &ChunkParams, files: &[IndexFile]) -> Value {
     let files = files
         .iter()
         .map(|f| {
-            let chunks = f
-                .chunks
-                .iter()
-                .map(|c| {
-                    Value::Object(BTreeMap::from([
-                        ("digest".to_owned(), s(c.digest)),
-                        ("length".to_owned(), int(c.length)),
-                    ]))
-                })
-                .collect();
+            let chunks = f.chunks.iter().map(encode_chunk).collect();
             Value::Object(BTreeMap::from([
                 ("content".to_owned(), s(f.content)),
                 ("chunks".to_owned(), Value::Array(chunks)),
@@ -225,7 +262,7 @@ fn encode(params: &ChunkParams, files: &[IndexFile]) -> Value {
         .collect();
     Value::Object(BTreeMap::from([
         (FORMAT.to_owned(), Value::Int(1)),
-        ("chunking".to_owned(), Value::Object(chunking)),
+        ("chunking".to_owned(), encode_chunking(params)),
         ("files".to_owned(), Value::Array(files)),
     ]))
 }
@@ -277,8 +314,27 @@ impl At<'_> {
             .ok_or_else(|| self.err(Some(field), IndexErrorKind::Missing))
     }
 
+    /// A layout error, with `field` named if it is a value of the wrong
+    /// type. The other errors are the index's.
+    fn layout(&self, field: Option<&str>, e: LayoutError) -> IndexError {
+        match e {
+            LayoutError::Json(e) => json_error(e),
+            LayoutError::NotCanonical { at } => {
+                IndexError::index(None, IndexErrorKind::NotCanonical { at })
+            }
+            LayoutError::WrongType { expected, found } => {
+                self.err(field, IndexErrorKind::WrongType { expected, found })
+            }
+        }
+    }
+
+    #[cfg(test)]
     fn string<'v>(&self, map: &'v BTreeMap<String, Value>, field: &str) -> R<&'v str> {
-        match self.get(map, field)? {
+        self.string_value(field, self.get(map, field)?)
+    }
+
+    fn string_value<'v>(&self, field: &str, v: &'v Value) -> R<&'v str> {
+        match v {
             Value::Str(text) => Ok(text),
             other => Err(self.wrong(Some(field), "a string", other)),
         }
@@ -297,18 +353,23 @@ impl At<'_> {
     }
 
     fn digest(&self, map: &BTreeMap<String, Value>, field: &str) -> R<Digest> {
-        let digest: Digest = self
-            .string(map, field)?
-            .parse()
-            .map_err(|e: ordin_core::Error| {
-                self.err(Some(field), IndexErrorKind::Invalid(e.to_string()))
-            })?;
+        self.digest_value(field, self.get(map, field)?)
+    }
+
+    fn digest_value(&self, field: &str, v: &Value) -> R<Digest> {
+        let digest: Digest =
+            self.string_value(field, v)?
+                .parse()
+                .map_err(|e: ordin_core::Error| {
+                    self.err(Some(field), IndexErrorKind::Invalid(e.to_string()))
+                })?;
         if digest.algorithm() != Algorithm::Blake3 {
             return Err(self.err(Some(field), IndexErrorKind::NotBlake3));
         }
         Ok(digest)
     }
 
+    #[cfg(test)]
     fn array<'v>(&self, map: &'v BTreeMap<String, Value>, field: &str) -> R<&'v [Value]> {
         match self.get(map, field)? {
             Value::Array(items) => Ok(items),
@@ -317,6 +378,7 @@ impl At<'_> {
     }
 }
 
+#[cfg(test)]
 const INDEX_FIELDS: [&str; 3] = [FORMAT, "chunking", "files"];
 const CHUNKING_FIELDS: [&str; 6] = [
     "algorithm",
@@ -326,6 +388,7 @@ const CHUNKING_FIELDS: [&str; 6] = [
     "whole-below",
     "normalization",
 ];
+#[cfg(test)]
 const FILE_FIELDS: [&str; 2] = ["content", "chunks"];
 const CHUNK_FIELDS: [&str; 2] = ["digest", "length"];
 
@@ -371,6 +434,140 @@ fn decode_chunking(v: &Value) -> R<ChunkParams> {
     .map_err(|e| at.err(Some("chunking"), IndexErrorKind::Params(e)))
 }
 
+/// One chunk, from its object.
+fn decode_chunk(at: &At<'_>, v: &Value) -> R<ChunkRef> {
+    let map = at.object(v, &CHUNK_FIELDS)?;
+    Ok(ChunkRef {
+        digest: at.digest(map, "digest")?,
+        length: at.integer(map, "length")?,
+    })
+}
+
+fn json_error(e: JsonError) -> IndexError {
+    IndexError::index(None, IndexErrorKind::Json(e.0))
+}
+
+/// Requires `written` to be exactly what `read` holds.
+fn same(read: Member<'_>, written: &str) -> R<()> {
+    if read.text == written {
+        return Ok(());
+    }
+    Err(IndexError::index(
+        None,
+        IndexErrorKind::NotCanonical {
+            at: read.at + json::first_difference(read.text.as_bytes(), written.as_bytes()),
+        },
+    ))
+}
+
+/// A small part of the index as a JSON value, which must be written
+/// canonically.
+fn leaf(m: Member<'_>) -> R<Value> {
+    let value = json::parse_bounded(m.text, m.at, LEAF_VALUES).map_err(json_error)?;
+    same(m, &json::canonical(&value))?;
+    Ok(value)
+}
+
+/// Reads an index from its canonical text a chunk at a time: the text is
+/// checked as JSON without building it, then walked as written. Only the
+/// result and one chunk's JSON value are in memory at once. The format
+/// version is checked before any other field.
+fn read(text: &str) -> R<ChunkIndex> {
+    json::check_syntax(text).map_err(json_error)?;
+    let at = At::INDEX;
+    let json::Object {
+        members: [chunking, files, version],
+        unknown,
+    } = json::object(text, 0, ["chunking", "files", FORMAT]).map_err(|e| at.layout(None, e))?;
+    match version {
+        None => return Err(at.err(Some(FORMAT), IndexErrorKind::Missing)),
+        Some(v) if v.text == "1" => {}
+        Some(v) => {
+            let shown = json::parse_bounded(v.text, v.at, VERSION_VALUES).map_err(json_error)?;
+            return Err(at.err(
+                Some(FORMAT),
+                IndexErrorKind::UnknownFormat(json::canonical(&shown)),
+            ));
+        }
+    }
+    if let Some(name) = unknown {
+        return Err(at.err(Some(&name), IndexErrorKind::UnknownField));
+    }
+    let Some(chunking) = chunking else {
+        return Err(at.err(Some("chunking"), IndexErrorKind::Missing));
+    };
+    let params = decode_chunking(&leaf(chunking)?)?;
+    // Decoding refuses every choice the encoder wouldn't make, so encoding
+    // gives back the same text. Check it anyway, here and for each chunk
+    // and digest: the identity must be the digest of exactly what was read.
+    same(chunking, &json::canonical(&encode_chunking(&params)))?;
+    let Some(files) = files else {
+        return Err(at.err(Some("files"), IndexErrorKind::Missing));
+    };
+    let mut out = Vec::new();
+    for (index, item) in json::array(files.text, files.at)
+        .map_err(|e| at.layout(Some("files"), e))?
+        .enumerate()
+    {
+        out.push(read_file(index, item.map_err(|e| at.layout(None, e))?)?);
+    }
+    Ok(ChunkIndex {
+        chunking: params,
+        files: out,
+    })
+}
+
+/// One listed file, from its object's text.
+fn read_file(index: usize, item: Member<'_>) -> R<IndexFile> {
+    let at = At {
+        file: Some((index, None)),
+        chunk: None,
+    };
+    let json::Object {
+        members: [chunks, content],
+        unknown,
+    } = json::object(item.text, item.at, ["chunks", "content"]).map_err(|e| at.layout(None, e))?;
+    if let Some(name) = unknown {
+        return Err(at.err(Some(&name), IndexErrorKind::UnknownField));
+    }
+    let Some(content) = content else {
+        return Err(at.err(Some("content"), IndexErrorKind::Missing));
+    };
+    let written = leaf(content)?;
+    let digest = at.digest_value("content", &written)?;
+    same(content, &json::canonical(&s(digest)))?;
+    let at = At {
+        file: Some((index, at.string_value("content", &written).ok())),
+        chunk: None,
+    };
+    let Some(chunks) = chunks else {
+        return Err(at.err(Some("chunks"), IndexErrorKind::Missing));
+    };
+    let mut out = Vec::new();
+    for (c, item) in json::array(chunks.text, chunks.at)
+        .map_err(|e| at.layout(Some("chunks"), e))?
+        .enumerate()
+    {
+        let item = item.map_err(|e| at.layout(None, e))?;
+        let chunk = decode_chunk(
+            &At {
+                chunk: Some(c),
+                ..at
+            },
+            &leaf(item)?,
+        )?;
+        same(item, &json::canonical(&encode_chunk(&chunk)))?;
+        out.push(chunk);
+    }
+    Ok(IndexFile {
+        content: digest,
+        chunks: out,
+    })
+}
+
+/// One listed file from its JSON value: the reader before [`read`], kept
+/// for the tests to compare with.
+#[cfg(test)]
 fn decode_file(index: usize, v: &Value) -> R<IndexFile> {
     let mut at = At {
         file: Some((index, None)),
@@ -384,20 +581,21 @@ fn decode_file(index: usize, v: &Value) -> R<IndexFile> {
         .iter()
         .enumerate()
         .map(|(c, v)| {
-            let at = At {
-                chunk: Some(c),
-                ..at
-            };
-            let map = at.object(v, &CHUNK_FIELDS)?;
-            Ok(ChunkRef {
-                digest: at.digest(map, "digest")?,
-                length: at.integer(map, "length")?,
-            })
+            decode_chunk(
+                &At {
+                    chunk: Some(c),
+                    ..at
+                },
+                v,
+            )
         })
         .collect::<R<_>>()?;
     Ok(IndexFile { content, chunks })
 }
 
+/// The whole index from its JSON value: the reader before [`read`], kept
+/// for the tests to compare with.
+#[cfg(test)]
 fn decode(v: &Value) -> R<ChunkIndex> {
     let at = At::INDEX;
     let Value::Object(map) = v else {
@@ -425,6 +623,7 @@ fn decode(v: &Value) -> R<ChunkIndex> {
 }
 
 /// Requires `written` to be exactly the bytes that were `read`.
+#[cfg(test)]
 fn same_encoding(read: &str, written: &str) -> R<()> {
     if read == written {
         return Ok(());
@@ -432,7 +631,7 @@ fn same_encoding(read: &str, written: &str) -> R<()> {
     Err(IndexError::index(
         None,
         IndexErrorKind::NotCanonical {
-            at: crate::first_difference(read.as_bytes(), written.as_bytes()),
+            at: json::first_difference(read.as_bytes(), written.as_bytes()),
         },
     ))
 }
@@ -456,6 +655,13 @@ impl ChunkIndex {
     ///
     /// Returns the first rule the bytes break, and where.
     pub fn from_canonical_bytes(bytes: &[u8]) -> R<(Self, Digest)> {
+        let index = read(Self::text(bytes)?)?;
+        check(&index.chunking, &index.files)?;
+        Ok((index, Digest::blake3(bytes)))
+    }
+
+    /// The bytes as text, if they are within the size limit and UTF-8.
+    fn text(bytes: &[u8]) -> R<&str> {
         if bytes.len() > MAX_SIZE {
             return Err(IndexError::index(
                 None,
@@ -465,22 +671,7 @@ impl ChunkIndex {
                 },
             ));
         }
-        let text = std::str::from_utf8(bytes)
-            .map_err(|_| IndexError::index(None, IndexErrorKind::NotUtf8))?;
-        let value =
-            json::parse(text).map_err(|e| IndexError::index(None, IndexErrorKind::Json(e.0)))?;
-        same_encoding(text, &json::canonical(&value))?;
-        let index = decode(&value)?;
-        check(&index.chunking, &index.files)?;
-        // Decoding refuses every choice the encoder wouldn't make, so
-        // encoding gives back the same bytes. Check it anyway: the
-        // identity must be the digest of exactly what was read.
-        same_encoding(text, &json::canonical(&index.encode()))?;
-        Ok((index, Digest::blake3(bytes)))
-    }
-
-    fn encode(&self) -> Value {
-        encode(&self.chunking, &self.files)
+        std::str::from_utf8(bytes).map_err(|_| IndexError::index(None, IndexErrorKind::NotUtf8))
     }
 
     /// The index's canonical bytes, checked against every rule.
@@ -489,7 +680,7 @@ impl ChunkIndex {
     ///
     /// Returns the first rule the index breaks, and where.
     pub fn to_canonical_bytes(&self) -> R<Vec<u8>> {
-        let bytes = json::canonical(&self.encode()).into_bytes();
+        let bytes = text(&self.chunking, &self.files).into_bytes();
         Self::from_canonical_bytes(&bytes)?;
         Ok(bytes)
     }
@@ -569,6 +760,25 @@ impl ChunkIndex {
     }
 }
 
+/// The reader and writer this crate had before reading a chunk at a
+/// time, which built the whole index as one JSON value. The tests hold
+/// the new ones to them.
+#[cfg(test)]
+impl ChunkIndex {
+    fn from_canonical_bytes_by_value(bytes: &[u8]) -> R<(Self, Digest)> {
+        let text = Self::text(bytes)?;
+        let value = json::parse(text).map_err(json_error)?;
+        same_encoding(text, &json::canonical(&value))?;
+        let index = decode(&value)?;
+        check(&index.chunking, &index.files)?;
+        same_encoding(
+            text,
+            &json::canonical(&encode(&index.chunking, &index.files)),
+        )?;
+        Ok((index, Digest::blake3(bytes)))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -586,5 +796,148 @@ mod tests {
     fn lengths_far_beyond_any_index_are_written_as_the_largest_integer() {
         assert_eq!(int(5u64), Value::Int(5));
         assert_eq!(int(u64::MAX), Value::Int(i64::MAX));
+    }
+
+    fn chunk(seed: u64, length: u64) -> ChunkRef {
+        ChunkRef {
+            digest: Digest::blake3(&seed.to_le_bytes()),
+            length,
+        }
+    }
+
+    /// A small index: files of one, two and three chunks.
+    fn sample() -> Vec<u8> {
+        let params = ChunkParams::new(64, 256, 1024, 256, 1).unwrap();
+        let files = vec![
+            IndexFile::new(Digest::blake3(b"a"), vec![chunk(1, 300), chunk(2, 70)]),
+            IndexFile::new(
+                Digest::blake3(b"b"),
+                vec![chunk(3, 1024), chunk(4, 900), chunk(5, 1)],
+            ),
+            IndexFile::new(Digest::blake3(b"c"), vec![chunk(6, 256), chunk(7, 99)]),
+        ];
+        ChunkIndex::new(params, files)
+            .unwrap()
+            .to_canonical_bytes()
+            .unwrap()
+    }
+
+    /// Both readers give the same answer: the same index and identity, or
+    /// a refusal. The errors may differ.
+    fn agree(bytes: &[u8]) -> bool {
+        let new = ChunkIndex::from_canonical_bytes(bytes);
+        let old = ChunkIndex::from_canonical_bytes_by_value(bytes);
+        assert_eq!(
+            new.as_ref().ok(),
+            old.as_ref().ok(),
+            "{}",
+            String::from_utf8_lossy(bytes)
+        );
+        new.is_ok()
+    }
+
+    /// The sample with each change applied: a byte changed, inserted or
+    /// removed.
+    fn changed(changes: &[(usize, u8, u8)]) -> Vec<u8> {
+        let mut bytes = sample();
+        for &(at, byte, how) in changes {
+            let i = at % (bytes.len() + 1);
+            match how {
+                0 if i < bytes.len() => bytes[i] ^= byte.max(1),
+                1 => bytes.insert(i, byte),
+                _ if i < bytes.len() => {
+                    bytes.remove(i);
+                }
+                _ => {}
+            }
+        }
+        bytes
+    }
+
+    #[test]
+    fn both_readers_read_the_sample_and_refuse_it_spaced_out() {
+        let bytes = sample();
+        assert!(agree(&bytes));
+        let value: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert!(!agree(&serde_json::to_vec_pretty(&value).unwrap()));
+        let text = String::from_utf8(bytes).unwrap();
+        let chunking = &text[text.find(':').unwrap() + 1..text.find(r#","files""#).unwrap()];
+        for refused in [
+            "[]".to_owned(),
+            format!(r#"{{"chunking":{chunking},"files":{{}},"ordin-chunk-index":1}}"#),
+        ] {
+            assert!(!agree(refused.as_bytes()), "{refused}");
+        }
+    }
+
+    #[test]
+    fn a_part_that_differs_from_its_encoding_is_refused_where_it_differs() {
+        let item = Member {
+            at: 10,
+            text: r#"{"a":1}"#,
+        };
+        assert!(same(item, r#"{"a":1}"#).is_ok());
+        assert_eq!(
+            same(item, r#"{"a":2}"#).unwrap_err().kind,
+            IndexErrorKind::NotCanonical { at: 15 }
+        );
+        let text = String::from_utf8(sample()).unwrap();
+        let at = text.find(r#","length""#).unwrap() + 1;
+        let spaced = text.replacen(r#","length""#, r#", "length""#, 1);
+        assert_eq!(
+            ChunkIndex::from_canonical_bytes(spaced.as_bytes())
+                .unwrap_err()
+                .kind,
+            IndexErrorKind::NotCanonical { at }
+        );
+    }
+
+    #[test]
+    fn a_repeated_field_is_refused() {
+        let text = String::from_utf8(sample()).unwrap();
+        let repeated = text.replacen(r#","files":"#, r#","chunking":{},"files":"#, 1);
+        let e = ChunkIndex::from_canonical_bytes(repeated.as_bytes()).unwrap_err();
+        assert!(
+            matches!(&e.kind, IndexErrorKind::Json(m) if m.contains("appears twice")),
+            "{e}"
+        );
+    }
+
+    #[test]
+    fn both_writers_agree() {
+        let (index, _) = ChunkIndex::from_canonical_bytes(&sample()).unwrap();
+        assert_eq!(
+            text(&index.chunking, &index.files),
+            json::canonical(&encode(&index.chunking, &index.files))
+        );
+        let empty = ChunkIndex::new(*index.chunking(), vec![]).unwrap();
+        assert_eq!(
+            text(&empty.chunking, &empty.files),
+            json::canonical(&encode(&empty.chunking, &empty.files))
+        );
+    }
+
+    #[test]
+    fn changed_bytes_are_sometimes_accepted() {
+        // The comparison below has teeth only if some changes are read:
+        // a changed digit of a digest or a length still makes an index.
+        let accepted = (0..sample().len())
+            .filter(|&at| agree(&changed(&[(at, 1, 0)])))
+            .count();
+        assert!(accepted > 100, "{accepted}");
+    }
+
+    proptest::proptest! {
+        #![proptest_config(proptest::prelude::ProptestConfig::with_cases(4096))]
+
+        #[test]
+        fn both_readers_agree_on_changed_bytes(
+            changes in proptest::collection::vec(
+                (0..usize::MAX, proptest::prelude::any::<u8>(), 0u8..3),
+                1..4,
+            )
+        ) {
+            agree(&changed(&changes));
+        }
     }
 }

@@ -60,7 +60,7 @@ fn capabilities(caps: &Capabilities) -> Value {
     Value::Object(o)
 }
 
-fn entry(e: &Entry) -> Value {
+pub(crate) fn entry(e: &Entry) -> Value {
     let mut o = BTreeMap::new();
     o.insert("path".into(), s(&e.path));
     o.insert("type".into(), s(e.kind.type_name()));
@@ -96,7 +96,22 @@ fn entry(e: &Entry) -> Value {
     Value::Object(o)
 }
 
-/// The tree's JSON value.
+/// The tree's canonical text, written one entry at a time.
+pub(crate) fn text(entries: &[Entry]) -> String {
+    let mut out = String::from("{\"entries\":[");
+    for (i, e) in entries.iter().enumerate() {
+        if i > 0 {
+            out.push(',');
+        }
+        ordin_core::json::write_canonical(&entry(e), &mut out);
+    }
+    out.push_str("],\"ordin-tree\":1}");
+    out
+}
+
+/// The tree's JSON value: the encoding before [`text`], kept for the tests
+/// to compare with.
+#[cfg(test)]
 pub(crate) fn tree(entries: &[Entry]) -> Value {
     let mut o = BTreeMap::new();
     o.insert("ordin-tree".into(), Value::Int(1));
