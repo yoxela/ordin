@@ -72,6 +72,25 @@ pub(crate) fn header(name: &str, size: u64) -> io::Result<[u8; 512]> {
     Ok(h)
 }
 
+/// The name and size a header records, if it is exactly the header
+/// [`header`] writes for them. Any other header, however valid as tar, is
+/// refused.
+pub(crate) fn parse_header(block: &[u8; 512]) -> Option<(String, u64)> {
+    let field = block.get(..NAME_MAX)?;
+    let len = field.iter().position(|&b| b == 0).unwrap_or(NAME_MAX);
+    let name = std::str::from_utf8(field.get(..len)?).ok()?;
+    // Eleven octal digits, which can't overflow: at most MAX_ENTRY_SIZE.
+    let mut size = 0;
+    for &digit in block.get(124..135)? {
+        if !(b'0'..=b'7').contains(&digit) {
+            return None;
+        }
+        size = size * 8 + u64::from(digit - b'0');
+    }
+    let written = header(name, size).ok()?;
+    (written == *block).then(|| (name.to_owned(), size))
+}
+
 /// The zero bytes that pad an entry of `size` bytes to whole blocks.
 pub(crate) fn padding(size: u64) -> u64 {
     (BLOCK - size % BLOCK) % BLOCK
@@ -207,6 +226,40 @@ mod tests {
         let e = tar.entry("a", 4, &mut &b"abc"[..]).unwrap_err();
         assert_eq!(e.kind(), ErrorKind::UnexpectedEof);
         assert_eq!(e.to_string(), "a ended after 3 of its 4 bytes");
+    }
+
+    #[test]
+    fn only_the_headers_the_writer_writes_are_read() {
+        let long = "b".repeat(100);
+        for (name, size) in [
+            ("oci-layout", 30),
+            ("a", 0),
+            (long.as_str(), MAX_ENTRY_SIZE),
+            ("index.json", 0o1234_5670),
+        ] {
+            let h = header(name, size).unwrap();
+            assert_eq!(parse_header(&h), Some((name.to_owned(), size)));
+            // Any change to any byte, even one tar readers ignore, is
+            // refused.
+            for at in 0..512 {
+                for bit in [0x01, 0x08, 0x80] {
+                    let mut changed = h;
+                    changed[at] ^= bit;
+                    assert_eq!(parse_header(&changed), None, "{name}: byte {at} ^ {bit}");
+                }
+            }
+        }
+        // A size field that isn't octal digits.
+        let mut h = header("a", 0).unwrap();
+        h[134] = b'8';
+        assert_eq!(parse_header(&h), None);
+        h[134] = b'/';
+        assert_eq!(parse_header(&h), None);
+        // A name that isn't UTF-8.
+        let mut h = header("a", 0).unwrap();
+        h[0] = 0xff;
+        assert_eq!(parse_header(&h), None);
+        assert_eq!(parse_header(&[0; 512]), None);
     }
 
     #[test]

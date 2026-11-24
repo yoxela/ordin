@@ -60,6 +60,20 @@ All notable changes to Ordin are recorded here. The format follows [Keep a Chang
   - Manifest format: `NOASSERTION` and `NONE` stand alone in a license expression and have no texts, so `texts` is left out for them (`SCHEMA.md`). `Manifest::new` builds a manifest in code, and `ordin_manifest::spdx` is public.
   - `Layout` gains `origins`: where each entry of the normalized tree was in the install root.
   - New dependencies for the `ordin` program: `clap` (without color or terminal detection) and `anyhow`.
+- ORD-131: reading `.ordin` files, in `ordin-archive`.
+  - `Reader::open` reads a file in place. It reads only the tar headers, `oci-layout`, `index.json`, the image manifest, the config and the Ordin manifest, and refuses anything the writer wouldn't have written:
+    - a tar header other than the writer's, byte for byte
+    - entries out of order, non-zero padding, or anything after the two closing zero blocks
+    - OCI JSON other than exactly what the writer writes
+    - a layer out of order, of an unknown type or with other annotations
+    - a blob that is missing, unused, of another size or named with other digests
+    - layers that don't match the manifest's facets, trees and license texts
+  - Every other part is read when asked for, within its own limit, and checked against its digests: `license_text`, `tree`, `chunk_index` and `pack_table`. `chunk` reads one frame and accepts only one plain zstd frame of exactly the chunk's length, decompressed with a 16 MiB window, that has the chunk's digest. `read_file` writes a file chunk by chunk and checks the whole against its tree, so a changed chunk index can only make a read fail.
+  - Limits: 65,536 tar entries, 4 KiB for `index.json`, 4 MiB for the image manifest, 1 MiB for a license text, the tree's and chunk index's own limits, and 786,432 chunks (about 92 MiB) for a pack table.
+  - Pack tables have their own parser, which accepts only the canonical text and doesn't build a JSON value: the largest table needs about 54 MiB beyond its text. `PackTable::from_canonical_bytes` and `find` are public.
+  - Errors name the part that failed (`Part`), for `ordin verify` (ORD-133).
+  - The writer refuses what a reader would refuse: a license text over 1 MiB, and an image manifest over 4 MiB. `ordin pack`'s license text limit is now the archive's.
+  - A new fuzz target, `ordin_read`, reads any bytes, and changes a small package byte by byte: a changed package must be refused or give the same content.
 - ORD-130: writing `.ordin` files, in `ordin-archive`.
   - `write` writes a package as an OCI artifact (`artifactType` `application/vnd.ordin.package.v1`, the empty config) in a ustar archive. The format is in `FORMAT.md`.
   - The layers come in a fixed order: the manifest, the license texts, one tree per facet, the chunk index, then per facet a pack table and a chunk pack. Media types are `application/vnd.ordin.<part>.v1`, every descriptor carries its blob's BLAKE3 digest in `com.ordinpm.blake3`, and per-facet parts carry `com.ordinpm.facet`.

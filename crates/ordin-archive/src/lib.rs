@@ -18,19 +18,29 @@
 //! its tree records. The same package, chunking and zstd level give the
 //! same bytes on any number of threads, with the same zstd library.
 //!
-//! Reading `.ordin` files arrives with ORD-131.
+//! [`Reader`] reads one in place. Opening it reads only the archive's
+//! headers, the OCI JSON and the manifest, and refuses anything the
+//! writer wouldn't have written. Every other part is read when asked for,
+//! within its own limit, and checked against its digests: a chunk against
+//! its BLAKE3 digest, and a file put together from its chunks against its
+//! tree.
 
 mod blob;
 mod compress;
 mod error;
 mod oci;
 mod pack;
+mod read;
 mod tar;
 mod write;
 
 pub use blob::BlobId;
-pub use error::WriteError;
+pub use error::{PackTableError, PackTableErrorKind, Part, ReadError, ReadErrorKind, WriteError};
 pub use oci::{EMPTY_CONFIG, OCI_LAYOUT, annotations, media};
-pub use pack::{PACK_TABLE_VERSION, PackEntry, PackTable};
+pub use pack::{
+    MAX_CHUNK, MAX_FRAME, MAX_PACK_CHUNKS, MAX_PACK_TABLE_SIZE, PACK_TABLE_VERSION, PackEntry,
+    PackTable,
+};
+pub use read::{MAX_ENTRIES, MAX_IMAGE_MANIFEST_SIZE, MAX_INDEX_SIZE, MAX_LICENSE_TEXT, Reader};
 pub use tar::MAX_ENTRY_SIZE;
 pub use write::{LEVEL, MAX_LEVEL, Options, Package, Source, Written, write};
