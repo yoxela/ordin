@@ -98,6 +98,27 @@ pub enum WriteError {
         /// The limit.
         max: u64,
     },
+    /// A signature is for another package.
+    #[error("the signature by {key} is for package {signed}, not this package, {package}")]
+    SignatureFor {
+        /// Who signed.
+        key: String,
+        /// What it signs.
+        signed: Digest,
+        /// This package.
+        package: Digest,
+    },
+    /// Two signatures are by one key.
+    #[error("two signatures are by {0}; a package carries one per key")]
+    DuplicateSignature(String),
+    /// More signatures than a reader accepts.
+    #[error("{count} signatures, more than the {max} a package may carry")]
+    TooManySignatures {
+        /// How many were given.
+        count: usize,
+        /// The limit.
+        max: usize,
+    },
     /// A file couldn't be opened or read.
     #[error("{path}: {source}")]
     Read {
@@ -144,6 +165,9 @@ pub enum WriteError {
     /// A temporary file for a chunk pack couldn't be made, written or read.
     #[error("spooling a chunk pack: {0}")]
     Spool(io::Error),
+    /// Reading the package being signed again failed.
+    #[error("reading the package: {0}")]
+    Input(io::Error),
     /// A blob read back differently while it was copied into the file,
     /// for example a spooled chunk pack changed on disk.
     #[error("{path} changed before it was copied into the file")]
@@ -183,6 +207,8 @@ pub enum Part {
     Config,
     /// The Ordin manifest.
     Manifest,
+    /// One signature, by its key: `ed25519:` and the key's hex.
+    Signature(String),
     /// The text of one license, by SPDX ID.
     License(String),
     /// One facet's tree.
@@ -218,6 +244,7 @@ impl std::fmt::Display for Part {
             Self::ImageManifest => f.write_str("the image manifest"),
             Self::Config => f.write_str("the config"),
             Self::Manifest => f.write_str("the manifest"),
+            Self::Signature(key) => write!(f, "the signature by {key}"),
             Self::License(id) => write!(f, "the license text for {id}"),
             Self::Tree(facet) => write!(f, "the tree for facet {facet}"),
             Self::ChunkIndex => f.write_str("the chunk index"),
@@ -382,6 +409,16 @@ pub enum ReadErrorKind {
     /// The layers don't agree with the manifest.
     #[error("{0}")]
     Disagrees(String),
+    /// A signature isn't in its format, names an unusable key, or doesn't
+    /// verify.
+    #[error("{0}")]
+    Signature(ordin_sign::Error),
+    /// More signature layers than a package may carry.
+    #[error("a package carries at most {max} signatures")]
+    TooManySignatures {
+        /// The limit.
+        max: usize,
+    },
     /// The package has no such part.
     #[error("the package has no such part")]
     NoSuchPart,

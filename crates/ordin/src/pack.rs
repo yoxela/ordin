@@ -4,15 +4,17 @@
 //! `ordin pack`: rung 0, an install root to a package with one command.
 
 use std::collections::BTreeMap;
-use std::io::Read;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use anyhow::{Context, Result, anyhow, bail};
 use ordin_pack::{Output, PackError, PackOptions, Packed};
+use ordin_sign::{PublicKey, SecretKey};
 use ordin_tree::chunk::ChunkParams;
 use ordin_version::Version;
 
 use crate::cli::PackArgs;
+use crate::{files, keys};
 
 /// The largest license text read, in bytes: the most a `.ordin` file
 /// may carry.
@@ -23,6 +25,8 @@ pub const MAX_LICENSE_TEXT: u64 = ordin_archive::MAX_LICENSE_TEXT;
 pub struct Report {
     /// The package, and where it was written.
     pub packed: Packed,
+    /// The key it was signed with, if any.
+    pub signer: Option<PublicKey>,
     /// What the packager should know, in order.
     pub warnings: Vec<String>,
 }
@@ -44,24 +48,7 @@ fn version(text: &str, release: &str) -> Result<Version> {
 /// Reads one license text, refusing anything but a regular file of at
 /// most [`MAX_LICENSE_TEXT`] bytes.
 fn read_text(path: &Path) -> Result<Vec<u8>> {
-    let file = std::fs::File::open(path).with_context(|| format!("{}", path.display()))?;
-    let meta = file
-        .metadata()
-        .with_context(|| format!("{}", path.display()))?;
-    if !meta.is_file() {
-        bail!("{}: a license text must be a regular file", path.display());
-    }
-    let mut text = Vec::new();
-    file.take(MAX_LICENSE_TEXT + 1)
-        .read_to_end(&mut text)
-        .with_context(|| format!("{}", path.display()))?;
-    if text.len() as u64 > MAX_LICENSE_TEXT {
-        bail!(
-            "{}: a license text is at most {MAX_LICENSE_TEXT} bytes",
-            path.display()
-        );
-    }
-    Ok(text)
+    files::read_small(path, MAX_LICENSE_TEXT, "a license text")
 }
 
 fn license_texts(files: &[(String, PathBuf)]) -> Result<BTreeMap<String, Vec<u8>>> {
@@ -104,6 +91,12 @@ pub fn run(args: &PackArgs) -> Result<Report> {
         warnings.push("no --license was given, so the license is NOASSERTION".to_owned());
         "NOASSERTION".to_owned()
     });
+    let signer = args
+        .sign_key
+        .as_deref()
+        .map(|key| keys::load(key, args.passphrase_file.as_deref()))
+        .transpose()?;
+    let signed_by = signer.as_ref().map(SecretKey::public_key);
     let out = args
         .out
         .clone()
@@ -121,12 +114,17 @@ pub fn run(args: &PackArgs) -> Result<Report> {
         prefixes: args.prefixes.clone(),
         chunking: ChunkParams::DEFAULT,
         write: ordin_archive::Options::default(),
+        signer: signer.map(Arc::new),
     };
     let packed = ordin_pack::pack(&options, &out).map_err(hint)?;
     warnings.extend(packed.warnings.iter().map(ToString::to_string));
     warnings.extend(packed.notes.iter().map(ToString::to_string));
     warnings.extend(packed.inferred.iter().map(ToString::to_string));
-    Ok(Report { packed, warnings })
+    Ok(Report {
+        packed,
+        signer: signed_by,
+        warnings,
+    })
 }
 
 #[cfg(test)]

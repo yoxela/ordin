@@ -26,6 +26,7 @@ use crate::oci::{
 };
 use crate::pack::{MAX_CHUNK, MAX_FRAME, MAX_PACK_TABLE_SIZE, PackTable};
 use crate::tar::{BLOCK, padding, parse_header};
+use ordin_sign::{MAX_SIGNATURE_SIZE, Signature};
 
 /// The most entries an archive may have. A package can't need more: the
 /// image manifest is limited to [`MAX_IMAGE_MANIFEST_SIZE`], and every
@@ -39,6 +40,9 @@ pub const MAX_INDEX_SIZE: u64 = 4096;
 /// The most bytes the image manifest may have: the size every OCI
 /// registry must accept.
 pub const MAX_IMAGE_MANIFEST_SIZE: u64 = 4 << 20;
+
+/// The most signatures a package may carry.
+pub const MAX_SIGNATURES: usize = 64;
 
 /// The most bytes a license text may have.
 pub const MAX_LICENSE_TEXT: u64 = 1 << 20;
@@ -257,6 +261,7 @@ fn read_blob<R: Read + Seek>(
 #[derive(Default)]
 struct Layers {
     manifest: Option<BlobId>,
+    signatures: BTreeMap<String, BlobId>,
     licenses: BTreeMap<String, BlobId>,
     trees: BTreeMap<Facet, BlobId>,
     chunk_index: Option<BlobId>,
@@ -266,8 +271,8 @@ struct Layers {
 }
 
 /// Sorts the layers into parts, checking their order and annotations:
-/// the manifest, license texts by ID, trees by facet, the chunk index,
-/// pack tables by facet, then chunk packs by facet.
+/// the manifest, signatures by key, license texts by ID, trees by facet,
+/// the chunk index, pack tables by facet, then chunk packs by facet.
 fn sort_layers(layers: Vec<Layer>) -> Result<Layers, ReadError> {
     let error = |kind| ReadError::new(Part::ImageManifest, kind);
     let mut sorted = Layers::default();
@@ -278,8 +283,9 @@ fn sort_layers(layers: Vec<Layer>) -> Result<Layers, ReadError> {
             .position(|t| *t == layer.media_type)
             .unwrap_or(LAYER_TYPES.len());
         let key = match stage {
-            1 => Some(annotations::LICENSE),
-            2 | 4 | 5 => Some(annotations::FACET),
+            1 => Some(annotations::KEY),
+            2 => Some(annotations::LICENSE),
+            3 | 5 | 6 => Some(annotations::FACET),
             _ => None,
         };
         let value = key.and_then(|k| layer.annotations.get(k));
@@ -323,19 +329,28 @@ fn sort_layers(layers: Vec<Layer>) -> Result<Layers, ReadError> {
                 Part::Manifest
             }
             1 => {
+                if sorted.signatures.len() == MAX_SIGNATURES {
+                    return Err(error(ReadErrorKind::TooManySignatures {
+                        max: MAX_SIGNATURES,
+                    }));
+                }
+                sorted.signatures.insert(value.clone(), id);
+                Part::Signature(value.clone())
+            }
+            2 => {
                 sorted.licenses.insert(value.clone(), id);
                 Part::License(value.clone())
             }
-            2 => {
+            3 => {
                 let f = facet()?;
                 sorted.trees.insert(f.clone(), id);
                 Part::Tree(f)
             }
-            3 => {
+            4 => {
                 sorted.chunk_index = Some(id);
                 Part::ChunkIndex
             }
-            4 => {
+            5 => {
                 let f = facet()?;
                 sorted.tables.insert(f.clone(), id);
                 Part::PackTable(f)
@@ -490,6 +505,7 @@ fn decompress(d: &mut Decompressor<'_>, frame: &[u8], length: u64) -> Result<Vec
 pub struct Reader<R> {
     input: R,
     manifest: Manifest,
+    signatures: Vec<Signature>,
     package: Digest,
     image: Digest,
     parts: Vec<(Part, BlobId)>,
@@ -509,6 +525,44 @@ impl<R> std::fmt::Debug for Reader<R> {
             .field("image", &self.image)
             .finish_non_exhaustive()
     }
+}
+
+/// Reads each signature layer and checks that it verifies, is by the key
+/// its annotation names, and is for this package.
+fn read_signatures<R: Read + Seek>(
+    input: &mut R,
+    entries: &Entries,
+    layers: &Layers,
+    package: Digest,
+) -> Result<Vec<Signature>, ReadError> {
+    let mut signatures = Vec::with_capacity(layers.signatures.len());
+    for (key, id) in &layers.signatures {
+        let part = Part::Signature(key.clone());
+        let blob = place_one(entries, &part, *id)?;
+        let bytes = read_blob(input, blob, MAX_SIGNATURE_SIZE as u64, &part)?;
+        let signature = Signature::from_bytes(&bytes)
+            .map_err(|e| ReadError::new(part.clone(), ReadErrorKind::Signature(e)))?;
+        if signature.key().to_string() != *key {
+            return Err(ReadError::new(
+                part,
+                ReadErrorKind::Disagrees(format!(
+                    "the layer is annotated with {key}, but the signature is by {}",
+                    signature.key()
+                )),
+            ));
+        }
+        if signature.package() != package {
+            return Err(ReadError::new(
+                part,
+                ReadErrorKind::Disagrees(format!(
+                    "the signature is for package {}, not this package, {package}",
+                    signature.package()
+                )),
+            ));
+        }
+        signatures.push(signature);
+    }
+    Ok(signatures)
 }
 
 impl<R: Read + Seek> Reader<R> {
@@ -583,10 +637,12 @@ impl<R: Read + Seek> Reader<R> {
         let (manifest, package) = Manifest::from_signed_bytes(&bytes)
             .map_err(|e| ReadError::new(Part::Manifest, ReadErrorKind::Manifest(Box::new(e))))?;
         check_against(&manifest, &layers)?;
+        let signatures = read_signatures(&mut input, &entries, &layers, package)?;
 
         Ok(Self {
             input,
             manifest,
+            signatures,
             package,
             image: image.sha256,
             parts: layers.parts,
@@ -606,6 +662,13 @@ impl<R: Read + Seek> Reader<R> {
         &self.manifest
     }
 
+    /// The signatures, by key. Each verifies and is for this package;
+    /// whether its key is trusted is the caller's question.
+    #[must_use]
+    pub fn signatures(&self) -> &[Signature] {
+        &self.signatures
+    }
+
     /// The package's identity: the BLAKE3 digest of its manifest.
     #[must_use]
     pub fn package(&self) -> Digest {
@@ -617,6 +680,20 @@ impl<R: Read + Seek> Reader<R> {
     #[must_use]
     pub fn image(&self) -> Digest {
         self.image
+    }
+
+    /// Where the blob `id` starts in the input, if the package has it.
+    pub(crate) fn blob_offset(&self, id: &BlobId) -> Option<u64> {
+        self.blobs.get(&id.path()).map(|b| b.offset)
+    }
+
+    /// The chunk index's identity, as its descriptor records it.
+    pub(crate) fn chunk_index_digest(&self) -> Digest {
+        self.chunk_index.blake3
+    }
+
+    pub(crate) fn input_mut(&mut self) -> &mut R {
+        &mut self.input
     }
 
     /// The layers in order, each with the identity its descriptor

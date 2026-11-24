@@ -113,6 +113,7 @@ mod cli {
         assert_eq!(v["license"], "MIT");
         assert_eq!(v["file"], "hello-1_2.12-3.noarch.ordin");
         assert_eq!(v["warnings"], Value::Array(Vec::new()));
+        assert_eq!(v["signatures"], Value::Array(Vec::new()));
         // The script's interpreter, from its #! line.
         assert_eq!(v["requires"], serde_json::json!(["file:/usr/bin/sh"]));
         assert_eq!(v["provides"], serde_json::json!([]));
@@ -133,8 +134,19 @@ mod cli {
         assert_eq!(
             keys,
             [
-                "arch", "facets", "file", "image", "license", "name", "package", "provides",
-                "requires", "size", "version", "warnings"
+                "arch",
+                "facets",
+                "file",
+                "image",
+                "license",
+                "name",
+                "package",
+                "provides",
+                "requires",
+                "signatures",
+                "size",
+                "version",
+                "warnings"
             ]
         );
     }
@@ -507,11 +519,11 @@ mod cli {
         assert!(!text.ends_with('\n'), "one canonical JSON object");
         let v: Value = serde_json::from_str(&text).unwrap();
         let keys: Vec<&String> = v.as_object().unwrap().keys().collect();
-        assert_eq!(keys, ["file", "image", "manifest", "package", "signature"]);
+        assert_eq!(keys, ["file", "image", "manifest", "package", "signatures"]);
         assert_eq!(v["file"], "hello.ordin");
         assert_eq!(v["package"], packed["package"]);
         assert_eq!(v["image"], packed["image"]);
-        assert_eq!(v["signature"], Value::Null);
+        assert_eq!(v["signatures"], Value::Array(Vec::new()));
         assert_eq!(v["manifest"]["name"], "hello");
         assert_eq!(v["manifest"]["summary"], "Prints a greeting");
         assert_eq!(v["manifest"]["facets"]["doc"]["size"], 12);
@@ -592,5 +604,392 @@ mod cli {
                 "{said}"
             );
         }
+    }
+
+    // Signing (ORD-140).
+
+    fn mode(path: &Path) -> u32 {
+        fs::metadata(path).unwrap().permissions().mode() & 0o7777
+    }
+
+    /// A clear key `NAME` made in `dir`.
+    fn clear_key(dir: &Path, name: &str) -> String {
+        let o = ordin(dir, &["key", "generate", name, "--no-passphrase", "--json"]);
+        assert_eq!(o.status.code(), Some(0), "{}", stdout(&o));
+        let v: Value = serde_json::from_str(&stdout(&o)).unwrap();
+        v["key"].as_str().unwrap().to_owned()
+    }
+
+    #[test]
+    fn key_generate_writes_a_secret_and_a_public_key() {
+        let dir = temp();
+        let o = ordin(
+            dir.path(),
+            &[
+                "key",
+                "generate",
+                "release",
+                "--no-passphrase",
+                "--comment",
+                "release key",
+            ],
+        );
+        assert_eq!(o.status.code(), Some(0), "{}", stderr(&o));
+        assert_eq!(
+            stderr(&o),
+            "ordin: warning: release isn't encrypted: anyone who can read it can sign as this key\n"
+        );
+        let out = stdout(&o);
+        let lines: Vec<&str> = out.lines().collect();
+        assert_eq!(
+            lines[..2],
+            [
+                "wrote release (the secret key, not encrypted)",
+                "wrote release.pub (the public key)"
+            ]
+        );
+        let key = lines[2].strip_prefix("key ").unwrap();
+        assert!(key.starts_with("ed25519:") && key.len() == 72, "{key}");
+        assert_eq!(mode(&dir.path().join("release")), 0o600);
+        assert_eq!(mode(&dir.path().join("release.pub")), 0o644);
+        let public = fs::read_to_string(dir.path().join("release.pub")).unwrap();
+        assert_eq!(public, format!("ordin-ed25519 {} release key\n", &key[8..]));
+        // A key is never replaced.
+        let o = ordin(
+            dir.path(),
+            &["key", "generate", "release", "--no-passphrase"],
+        );
+        assert_eq!(o.status.code(), Some(1));
+        assert_eq!(
+            stderr(&o),
+            "ordin: error: release: already exists; a key is never replaced\n"
+        );
+        fs::remove_file(dir.path().join("release")).unwrap();
+        let o = ordin(
+            dir.path(),
+            &["key", "generate", "release", "--no-passphrase", "--json"],
+        );
+        assert_eq!(o.status.code(), Some(1));
+        assert_eq!(
+            stdout(&o),
+            r#"{"error":"release.pub: already exists; a key is never replaced"}"#
+        );
+        assert!(!dir.path().join("release").exists());
+    }
+
+    #[test]
+    fn key_generate_encrypts_with_a_passphrase() {
+        let dir = temp();
+        fs::write(dir.path().join("pass"), "correct horse\n").unwrap();
+        let o = ordin(
+            dir.path(),
+            &[
+                "key",
+                "generate",
+                "k",
+                "--passphrase-file",
+                "pass",
+                "--json",
+            ],
+        );
+        assert_eq!(o.status.code(), Some(0), "{}", stdout(&o));
+        assert_eq!(stderr(&o), "");
+        let v: Value = serde_json::from_str(&stdout(&o)).unwrap();
+        let keys: Vec<&String> = v.as_object().unwrap().keys().collect();
+        assert_eq!(keys, ["encrypted", "key", "public", "secret"]);
+        assert_eq!(v["encrypted"], true);
+        assert_eq!(
+            (v["public"].as_str(), v["secret"].as_str()),
+            (Some("k.pub"), Some("k"))
+        );
+        let secret = fs::read_to_string(dir.path().join("k")).unwrap();
+        assert!(
+            secret.contains(r#""cipher":"xchacha20-poly1305""#),
+            "{secret}"
+        );
+        // Without a terminal, nobody can be asked.
+        let o = ordin(dir.path(), &["key", "generate", "j"]);
+        assert_eq!(o.status.code(), Some(1));
+        assert_eq!(
+            stderr(&o),
+            "ordin: error: no terminal to ask for the passphrase on; give it with --passphrase-file\n"
+        );
+        assert!(!dir.path().join("j").exists());
+        fs::write(dir.path().join("empty"), "\n").unwrap();
+        let o = ordin(
+            dir.path(),
+            &["key", "generate", "j", "--passphrase-file", "empty"],
+        );
+        assert_eq!(
+            stderr(&o),
+            "ordin: error: empty: a passphrase can't be empty\n"
+        );
+        let o = ordin(dir.path(), &["key", "generate", "j", "--comment", "a\u{7}"]);
+        assert_eq!(o.status.code(), Some(1));
+        assert!(
+            stderr(&o).contains("a comment can't hold control characters"),
+            "{}",
+            stderr(&o)
+        );
+        let o = ordin(
+            dir.path(),
+            &[
+                "key",
+                "generate",
+                "j",
+                "--no-passphrase",
+                "--passphrase-file",
+                "pass",
+            ],
+        );
+        assert_eq!(o.status.code(), Some(2));
+        assert!(!dir.path().join("j").exists());
+    }
+
+    fn show_json(dir: &Path, file: &str) -> Value {
+        let o = ordin(dir, &["show", file, "--json"]);
+        assert_eq!(o.status.code(), Some(0), "{}", stdout(&o));
+        serde_json::from_str(&stdout(&o)).unwrap()
+    }
+
+    #[test]
+    fn sign_adds_a_signature_and_never_changes_the_package() {
+        let dir = packed();
+        let alice = clear_key(dir.path(), "alice");
+        let before = show_json(dir.path(), "hello.ordin");
+        let o = ordin(dir.path(), &["sign", "hello.ordin", "--key", "alice"]);
+        assert_eq!(o.status.code(), Some(0), "{}", stderr(&o));
+        let out = stdout(&o);
+        assert_eq!(
+            out,
+            format!(
+                "signed hello.ordin with {alice}\npackage {}\nsignatures: 1\n",
+                before["package"].as_str().unwrap()
+            )
+        );
+        let after = show_json(dir.path(), "hello.ordin");
+        assert_eq!(after["package"], before["package"]);
+        assert_eq!(after["manifest"], before["manifest"]);
+        assert_ne!(after["image"], before["image"]);
+        assert_eq!(after["signatures"], serde_json::json!([{ "key": alice }]));
+        let o = ordin(dir.path(), &["show", "hello.ordin"]);
+        assert!(
+            stdout(&o).contains(&format!("\nsigned by {alice}\n")),
+            "{}",
+            stdout(&o)
+        );
+        // Signing again with the same key gives the same file.
+        let once = fs::read(dir.path().join("hello.ordin")).unwrap();
+        let o = ordin(
+            dir.path(),
+            &["sign", "hello.ordin", "--key", "alice", "--json"],
+        );
+        assert_eq!(o.status.code(), Some(0), "{}", stdout(&o));
+        let v: Value = serde_json::from_str(&stdout(&o)).unwrap();
+        let keys: Vec<&String> = v.as_object().unwrap().keys().collect();
+        assert_eq!(
+            keys,
+            ["file", "image", "key", "package", "replaced", "signatures"]
+        );
+        assert_eq!(v["replaced"], true);
+        assert_eq!(v["image"], after["image"]);
+        assert_eq!(fs::read(dir.path().join("hello.ordin")).unwrap(), once);
+        let o = ordin(dir.path(), &["sign", "hello.ordin", "--key", "alice"]);
+        assert!(stdout(&o).contains(", replacing its earlier signature\n"));
+        // A second key, written elsewhere: the package itself is left alone.
+        let bob = clear_key(dir.path(), "bob");
+        let o = ordin(
+            dir.path(),
+            &["sign", "hello.ordin", "--key", "bob", "-o", "both.ordin"],
+        );
+        assert_eq!(o.status.code(), Some(0), "{}", stderr(&o));
+        assert_eq!(fs::read(dir.path().join("hello.ordin")).unwrap(), once);
+        let mut expected = vec![alice, bob];
+        expected.sort();
+        let both: Vec<String> = show_json(dir.path(), "both.ordin")["signatures"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|s| s["key"].as_str().unwrap().to_owned())
+            .collect();
+        assert_eq!(both, expected);
+        assert_eq!(mode(&dir.path().join("both.ordin")), 0o644);
+    }
+
+    #[test]
+    fn sign_writes_beside_the_file_it_writes() {
+        // The temporary file goes in the output's own directory: run from a
+        // directory nobody can write to, the signature still gets written.
+        let dir = packed();
+        clear_key(dir.path(), "k");
+        let out = dir.path().join("out");
+        fs::create_dir(&out).unwrap();
+        let locked = dir.path().join("locked");
+        fs::create_dir(&locked).unwrap();
+        fs::set_permissions(&locked, Permissions::from_mode(0o555)).unwrap();
+        let o = ordin(
+            &locked,
+            &[
+                "sign",
+                "../hello.ordin",
+                "--key",
+                "../k",
+                "-o",
+                "../out/signed.ordin",
+            ],
+        );
+        fs::set_permissions(&locked, Permissions::from_mode(0o755)).unwrap();
+        assert_eq!(o.status.code(), Some(0), "{}", stderr(&o));
+        let left: Vec<_> = fs::read_dir(&out)
+            .unwrap()
+            .map(|e| e.unwrap().file_name())
+            .collect();
+        assert_eq!(left, [std::ffi::OsString::from("signed.ordin")]);
+    }
+
+    #[test]
+    fn signing_while_packing_gives_what_signing_afterwards_gives() {
+        let dir = packed();
+        clear_key(dir.path(), "k");
+        let args = |out: &'static str, sign: bool| {
+            let mut a = vec![
+                "pack",
+                "root",
+                "--name",
+                "hello",
+                "--version",
+                "2.12",
+                "--license",
+                "MIT",
+                "--license-file",
+                "MIT=COPYING",
+                "--summary",
+                "Prints a greeting",
+                "-o",
+                out,
+            ];
+            if sign {
+                a.extend(["--sign-key", "k"]);
+            }
+            a
+        };
+        let o = ordin(dir.path(), &args("signed.ordin", true));
+        assert_eq!(o.status.code(), Some(0), "{}", stderr(&o));
+        assert!(
+            stdout(&o)
+                .lines()
+                .last()
+                .unwrap()
+                .starts_with("signed by ed25519:")
+        );
+        let o = ordin(dir.path(), &["sign", "hello.ordin", "--key", "k"]);
+        assert_eq!(o.status.code(), Some(0), "{}", stderr(&o));
+        assert_eq!(
+            fs::read(dir.path().join("signed.ordin")).unwrap(),
+            fs::read(dir.path().join("hello.ordin")).unwrap()
+        );
+        let mut json = args("again.ordin", true);
+        json.push("--json");
+        let o = ordin(dir.path(), &json);
+        let v: Value = serde_json::from_str(&stdout(&o)).unwrap();
+        assert_eq!(v["signatures"].as_array().unwrap().len(), 1);
+        let mut wrong = args("x.ordin", false);
+        wrong.extend(["--passphrase-file", "pass"]);
+        assert_eq!(ordin(dir.path(), &wrong).status.code(), Some(2));
+    }
+
+    #[test]
+    fn a_key_must_be_its_owners_and_open() {
+        let dir = packed();
+        fs::write(dir.path().join("pass"), "right\n").unwrap();
+        fs::write(dir.path().join("wrong"), "wrong\n").unwrap();
+        let o = ordin(
+            dir.path(),
+            &["key", "generate", "sealed", "--passphrase-file", "pass"],
+        );
+        assert_eq!(o.status.code(), Some(0), "{}", stderr(&o));
+        clear_key(dir.path(), "clear");
+        let sign = |extra: &[&str]| {
+            let mut a = vec!["sign", "hello.ordin"];
+            a.extend(extra);
+            let o = ordin(dir.path(), &a);
+            (o.status.code(), stderr(&o))
+        };
+        assert_eq!(
+            sign(&["--key", "sealed", "--passphrase-file", "pass"]).0,
+            Some(0)
+        );
+        assert_eq!(
+            sign(&["--key", "sealed", "--passphrase-file", "wrong"]),
+            (Some(1), "ordin: error: sealed: the passphrase is wrong, or the secret key file was changed\n".to_owned())
+        );
+        assert_eq!(
+            sign(&["--key", "sealed"]),
+            (Some(1), "ordin: error: no terminal to ask for the passphrase on; give it with --passphrase-file\n".to_owned())
+        );
+        assert_eq!(
+            sign(&["--key", "clear", "--passphrase-file", "pass"]),
+            (Some(1), "ordin: error: clear: the secret key isn't encrypted, so it takes no --passphrase-file\n".to_owned())
+        );
+        fs::set_permissions(dir.path().join("clear"), Permissions::from_mode(0o644)).unwrap();
+        assert_eq!(
+            sign(&["--key", "clear"]),
+            (Some(1), "ordin: error: clear: a secret key file must be readable by its owner only, not mode 0644; run chmod 600 clear\n".to_owned())
+        );
+        let (code, err) = sign(&["--key", "clear.pub"]);
+        assert_eq!(code, Some(1));
+        assert!(err.contains("must be readable by its owner only"), "{err}");
+        fs::set_permissions(dir.path().join("clear.pub"), Permissions::from_mode(0o600)).unwrap();
+        let (code, err) = sign(&["--key", "clear.pub"]);
+        assert_eq!(code, Some(1));
+        assert!(
+            err.starts_with("ordin: error: clear.pub: a secret key file: "),
+            "{err}"
+        );
+        let o = ordin(
+            dir.path(),
+            &[
+                "sign",
+                "COPYING",
+                "--key",
+                "sealed",
+                "--passphrase-file",
+                "pass",
+                "--json",
+            ],
+        );
+        assert_eq!(o.status.code(), Some(1));
+        assert!(
+            stdout(&o).starts_with(r#"{"error":"COPYING: the archive"#),
+            "{}",
+            stdout(&o)
+        );
+        let o = ordin(
+            dir.path(),
+            &[
+                "sign",
+                "root",
+                "--key",
+                "sealed",
+                "--passphrase-file",
+                "pass",
+            ],
+        );
+        assert_eq!(stderr(&o), "ordin: error: root: not a regular file\n");
+        let o = ordin(
+            dir.path(),
+            &[
+                "sign",
+                "hello.ordin",
+                "--key",
+                "sealed",
+                "--passphrase-file",
+                "root",
+            ],
+        );
+        assert_eq!(
+            stderr(&o),
+            "ordin: error: root: a passphrase file must be a regular file\n"
+        );
     }
 }

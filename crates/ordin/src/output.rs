@@ -15,7 +15,9 @@ use std::io::Write;
 
 use ordin_core::json::{self, MAX_INT, Value};
 
+use crate::keys::Generated;
 use crate::pack::Report;
+use crate::sign::Signed;
 
 fn text(s: impl ToString) -> Value {
     Value::Str(s.to_string())
@@ -58,6 +60,10 @@ pub fn pack_json(report: &Report) -> String {
             "requires",
             Value::Array(m.requires.iter().map(text).collect()),
         ),
+        (
+            "signatures",
+            Value::Array(report.signer.iter().map(text).collect()),
+        ),
         ("size", int(report.packed.written.size)),
         ("version", text(&m.version)),
         (
@@ -76,13 +82,84 @@ pub fn pack_text(report: &Report) -> String {
         .iter()
         .map(|(facet, entry)| format!("{facet} ({} bytes)", entry.size))
         .collect();
-    format!(
+    let mut out = format!(
         "wrote {} ({} bytes)\npackage {}\nfacets: {}\n",
         report.packed.out.display(),
         report.packed.written.size,
         report.packed.written.package,
         facets.join(", ")
+    );
+    if let Some(key) = &report.signer {
+        out.push_str(&format!("signed by {key}\n"));
+    }
+    out
+}
+
+/// `ordin sign`'s result as JSON.
+pub fn sign_json(signed: &Signed) -> String {
+    json::canonical(&object([
+        ("file", text(signed.file.display())),
+        ("image", text(signed.image)),
+        ("key", text(signed.key)),
+        ("package", text(signed.package)),
+        ("replaced", Value::Bool(signed.replaced)),
+        (
+            "signatures",
+            Value::Array(signed.signatures.iter().map(text).collect()),
+        ),
+    ]))
+}
+
+/// `ordin sign`'s result for people.
+pub fn sign_text(signed: &Signed) -> String {
+    let again = if signed.replaced {
+        ", replacing its earlier signature"
+    } else {
+        ""
+    };
+    format!(
+        "signed {} with {}{again}\npackage {}\nsignatures: {}\n",
+        signed.file.display(),
+        signed.key,
+        signed.package,
+        signed.signatures.len()
     )
+}
+
+/// `ordin key generate`'s result as JSON.
+pub fn key_json(made: &Generated) -> String {
+    json::canonical(&object([
+        ("encrypted", Value::Bool(made.encrypted)),
+        ("key", text(made.key)),
+        ("public", text(made.public.display())),
+        ("secret", text(made.secret.display())),
+    ]))
+}
+
+/// `ordin key generate`'s result for people.
+pub fn key_text(made: &Generated) -> String {
+    let sealed = if made.encrypted {
+        "encrypted"
+    } else {
+        "not encrypted"
+    };
+    format!(
+        "wrote {} (the secret key, {sealed})\nwrote {} (the public key)\nkey {}\n",
+        made.secret.display(),
+        made.public.display(),
+        made.key
+    )
+}
+
+/// What a packager should know about a new key.
+pub fn key_warnings(made: &Generated) -> Vec<String> {
+    if made.encrypted {
+        return Vec::new();
+    }
+    vec![format!(
+        "{} isn't encrypted: anyone who can read it can sign as this key",
+        made.secret.display()
+    )]
 }
 
 /// An error as JSON.

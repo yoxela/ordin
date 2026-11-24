@@ -1,0 +1,6 @@
+---
+source: crates/ordin-sign/tests/sign.rs
+assertion_line: 40
+expression: signed()
+---
+{"key":"ed25519:d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a","ordin-signature":1,"package":"blake3:c161acb4065fb456ded857fcc01f61847e2aa4e55872dbe090bc93d1b438bb3d","signature":"71b885a25237f8e2ab222c9a8fdc7bf597c5c52779831d8ee23b4f1d2fdbfe66100d5c6996105229286ec4187d92d9d0898d5d80f645334141b6b3325509320b"}

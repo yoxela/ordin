@@ -41,6 +41,8 @@ pub use pack::{
     MAX_CHUNK, MAX_FRAME, MAX_PACK_CHUNKS, MAX_PACK_TABLE_SIZE, PACK_TABLE_VERSION, PackEntry,
     PackTable,
 };
-pub use read::{MAX_ENTRIES, MAX_IMAGE_MANIFEST_SIZE, MAX_INDEX_SIZE, MAX_LICENSE_TEXT, Reader};
+pub use read::{
+    MAX_ENTRIES, MAX_IMAGE_MANIFEST_SIZE, MAX_INDEX_SIZE, MAX_LICENSE_TEXT, MAX_SIGNATURES, Reader,
+};
 pub use tar::MAX_ENTRY_SIZE;
-pub use write::{LEVEL, MAX_LEVEL, Options, Package, Source, Written, write};
+pub use write::{LEVEL, MAX_LEVEL, Options, Package, Source, Written, rewrite, write};

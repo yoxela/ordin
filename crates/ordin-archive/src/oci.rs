@@ -19,6 +19,9 @@ pub mod media {
     /// The Ordin manifest, in canonical JSON. Its BLAKE3 digest is the
     /// package's identity.
     pub const MANIFEST: &str = "application/vnd.ordin.manifest.v1+json";
+    /// One signature over the package's identity, in canonical JSON
+    /// (`ordin-sign`'s `FORMAT.md`).
+    pub const SIGNATURE: &str = "application/vnd.ordin.signature.v1+json";
     /// One license text, as the manifest records it.
     pub const LICENSE: &str = "application/vnd.ordin.license.v1";
     /// One facet's tree, in canonical JSON.
@@ -45,6 +48,8 @@ pub mod annotations {
     pub const FACET: &str = "com.ordinpm.facet";
     /// The SPDX license ID a license text is for.
     pub const LICENSE: &str = "com.ordinpm.license";
+    /// The key a signature is by: `ed25519:` and the key's hex.
+    pub const KEY: &str = "com.ordinpm.key";
 }
 
 /// The `oci-layout` file.
@@ -128,8 +133,9 @@ pub(crate) fn index(manifest: &BlobId) -> Vec<u8> {
 }
 
 /// The layer media types, in the order the layers come.
-pub(crate) const LAYER_TYPES: [&str; 6] = [
+pub(crate) const LAYER_TYPES: [&str; 7] = [
     media::MANIFEST,
+    media::SIGNATURE,
     media::LICENSE,
     media::TREE,
     media::CHUNK_INDEX,

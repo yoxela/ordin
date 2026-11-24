@@ -23,6 +23,7 @@ ordin-core = { path = "../crates/ordin-core" }
 ordin-depexpr = { path = "../crates/ordin-depexpr" }
 ordin-manifest = { path = "../crates/ordin-manifest" }
 ordin-pack = { path = "../crates/ordin-pack" }
+ordin-sign = { path = "../crates/ordin-sign" }
 ordin-tree = { path = "../crates/ordin-tree" }
 ordin-version = { path = "../crates/ordin-version" }
 
@@ -91,3 +92,24 @@ bench = false
 
 [workspace]
 members = ["."]
+
+[[bin]]
+name = "signature_parse"
+path = "fuzz_targets/signature_parse.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "public_key_parse"
+path = "fuzz_targets/public_key_parse.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "secret_key_parse"
+path = "fuzz_targets/secret_key_parse.rs"
+test = false
+doc = false
+bench = false

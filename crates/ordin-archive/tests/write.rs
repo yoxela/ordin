@@ -228,6 +228,7 @@ mod write {
                 trees: &self.trees,
                 licenses: &self.licenses,
                 chunking: params(),
+                signatures: &[],
             };
             write(&package, &mut self.files, options, spool, out)
         }
@@ -632,6 +633,7 @@ mod write {
             trees: &trees,
             licenses: &licenses,
             chunking: params(),
+            signatures: &[],
         };
         let spool = tempfile::tempdir().unwrap();
         let mut out = Vec::new();
@@ -813,6 +815,7 @@ mod write {
             trees: &fx.trees,
             licenses: &fx.licenses,
             chunking: params(),
+            signatures: &[],
         };
         let e = write(
             &package,
@@ -910,7 +913,7 @@ mod write {
             let trees = BTreeMap::from([(f("runtime"), Tree::new(entries).unwrap())]);
             let licenses = BTreeMap::from([("MIT".to_owned(), LICENSE.to_vec())]);
             let manifest = manifest(&trees, &licenses);
-            let package = Package { manifest: &manifest, trees: &trees, licenses: &licenses, chunking: params() };
+            let package = Package { manifest: &manifest, trees: &trees, licenses: &licenses, chunking: params(), signatures: &[] };
             let spool = tempfile::tempdir().unwrap();
             let options = Options { level: 3, threads: NonZeroUsize::new(threads).unwrap() };
             let mut a = Vec::new();

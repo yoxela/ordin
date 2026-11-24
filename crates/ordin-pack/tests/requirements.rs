@@ -767,6 +767,7 @@ mod requirements {
                 level: 1,
                 threads: std::num::NonZeroUsize::MIN,
             },
+            signer: None,
         }
     }
 

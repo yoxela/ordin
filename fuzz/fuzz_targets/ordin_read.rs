@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // SPDX-FileCopyrightText: 2026 The Ordin Authors
 
-//! Reading `.ordin` files (ORD-131). Any bytes are read or refused, never
+//! Reading `.ordin` files (ORD-131), signed (ORD-140). Any bytes are read or refused, never
 //! a panic, and a changed package is either refused or gives exactly the
 //! content it held before.
 //!
@@ -21,6 +21,7 @@ use libfuzzer_sys::fuzz_target;
 use ordin_archive::{Options, Package, Reader, Source, write};
 use ordin_core::{Account, Digest, Facet};
 use ordin_manifest::Manifest;
+use ordin_sign::SecretKeyFile;
 use ordin_tree::chunk::ChunkParams;
 use ordin_tree::{Entry, FILE_MODE, File, Kind, Tree, TreePath, Xattrs, file_digests};
 
@@ -28,6 +29,7 @@ use ordin_tree::{Entry, FILE_MODE, File, Kind, Tree, TreePath, Xattrs, file_dige
 #[derive(Debug, PartialEq, Eq)]
 struct Everything {
     package: Digest,
+    signers: Vec<String>,
     licenses: Vec<Vec<u8>>,
     trees: Vec<Tree>,
     files: Vec<Vec<u8>>,
@@ -58,6 +60,7 @@ fn read_all(bytes: &[u8]) -> Option<Everything> {
     }
     Some(Everything {
         package: r.package(),
+        signers: r.signatures().iter().map(|s| s.key().to_string()).collect(),
         licenses,
         trees,
         files,
@@ -95,8 +98,11 @@ fn file(path: &str, bytes: &[u8]) -> Entry {
     }
 }
 
+/// A fixed key: RFC 8032's first test key, from a key file in the clear.
+const KEY: &str = r#"{"key":"ed25519:d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a","ordin-secret-key":1,"secret":"9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60"}"#;
+
 /// A small package: a runtime facet with a file cut into chunks and an
-/// empty file, and a doc facet with one small file.
+/// empty file, and a doc facet with one small file, signed by one key.
 fn base() -> &'static (Vec<u8>, Everything) {
     static BASE: OnceLock<(Vec<u8>, Everything)> = OnceLock::new();
     BASE.get_or_init(|| {
@@ -124,11 +130,18 @@ fn base() -> &'static (Vec<u8>, Everything) {
             ("runtime".parse().expect("a facet"), runtime),
         ]);
         let licenses = BTreeMap::from([("MIT".to_owned(), text)]);
+        let key = SecretKeyFile::from_bytes(KEY.as_bytes())
+            .expect("a key file")
+            .open(None)
+            .expect("a key");
+        let identity = Digest::blake3(&manifest.to_canonical_bytes().expect("a manifest"));
+        let signatures = [key.sign(&identity).expect("a signature")];
         let package = Package {
             manifest: &manifest,
             trees: &trees,
             licenses: &licenses,
             chunking: ChunkParams::new(64, 256, 1024, 256, 1).expect("chunk settings"),
+            signatures: &signatures,
         };
         let mut out = Vec::new();
         write(
