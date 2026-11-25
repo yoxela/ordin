@@ -178,6 +178,7 @@ All notable changes to Ordin are recorded here. The format follows [Keep a Chang
 
 ### Fixed
 
+- Every warning and error `ordin` prints on standard error is made safe for a terminal, as `ordin show` already made its output: control characters and bidirectional formatting characters are written as `\u{…}`. A name is a valid tree path even with a character such as U+202E, which reverses the text after it, so a file named that way in an install root, or in a package's tree, could make an error line read as something else. `ordin verify`'s own escaping of corrupt-package errors is now this one. `--json` output is unchanged: it carries the exact text, and JSON escapes control characters itself.
 - `ordin` names each cause of an error once. Some errors from `ordin-pack` and `ordin-archive` put their cause in their own message and also gave it as their source, so `ordin pack` printed it twice: a file outside Ordin's layout, or a missing install root, came out as `missing: No such file or directory (os error 2): No such file or directory (os error 2)`. Each error now either shows its cause or gives it as its source, never both.
   - `PackError`'s `Walk`, `Layout`, `Facets`, `Infer` and `Write` are transparent, so they show and give exactly what they wrap.
   - `PackError::Sign`, `Tree`, `Root` and `Output`, `WriteError::Tree` and `Read`, and `InferError::Read` no longer repeat their source in their message: `{path}` instead of `{path}: {source}`. A reader that wants the whole story walks `source()`, as `ordin` does.

@@ -325,6 +325,39 @@ mod cli {
     }
 
     #[test]
+    fn errors_are_safe_for_a_terminal_and_exact_in_json() {
+        let dir = fixture();
+        // A name that reverses the text after it on a terminal.
+        write(&dir.path().join("root"), "x\u{202e}txt", b"x\n", 0o644);
+        let rest = ": outside Ordin's layout, which packages usr/, etc/ and var/; \
+                    if the software was installed with a prefix here, pass it with --prefix \
+                    to move it under /usr";
+        let (code, err) = fails(dir.path(), &[]);
+        assert_eq!(code, Some(1));
+        assert_eq!(
+            err.lines().last().unwrap(),
+            format!("ordin: error: /x\\u{{202e}}txt{rest}")
+        );
+        assert!(!err.contains('\u{202e}'), "{err}");
+        let o = ordin(
+            dir.path(),
+            &[
+                "pack",
+                "root",
+                "--name",
+                "hello",
+                "--version",
+                "2.12",
+                "--json",
+            ],
+        );
+        assert_eq!(o.status.code(), Some(1));
+        assert_eq!(stderr(&o), "");
+        let v: Value = serde_json::from_str(&stdout(&o)).unwrap();
+        assert_eq!(v["error"], format!("/x\u{202e}txt{rest}"));
+    }
+
+    #[test]
     fn license_texts_are_at_most_a_mebibyte() {
         let dir = fixture();
         let limit = 1 << 20;

@@ -73,7 +73,7 @@ fn main() -> ExitCode {
                 if args.json {
                     output::print(&output::corrupt_json(&e), &[]);
                 } else {
-                    output::print_failure(&output::corrupt_text(&e));
+                    output::print_error(&e);
                 }
                 ExitCode::from(verify::CORRUPT)
             }
