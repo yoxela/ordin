@@ -161,7 +161,7 @@ fn require_details(mask: u32) -> Result<(), WalkErrorKind> {
 fn io(action: &'static str) -> impl FnOnce(Errno) -> WalkErrorKind {
     move |errno| WalkErrorKind::Io {
         action,
-        source: errno.into(),
+        error: errno.into(),
     }
 }
 
@@ -234,10 +234,10 @@ fn value_length(result: rustix::io::Result<usize>) -> Result<usize, WalkErrorKin
 }
 
 /// Why reading a file failed.
-fn read_failed(source: std::io::Error) -> WalkErrorKind {
+fn read_failed(error: std::io::Error) -> WalkErrorKind {
     WalkErrorKind::Io {
         action: "read the file",
-        source,
+        error,
     }
 }
 

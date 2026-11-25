@@ -101,16 +101,16 @@ pub struct Packed {
 #[derive(Debug, thiserror::Error)]
 pub enum PackError {
     /// The package couldn't be signed.
-    #[error("signing: {0}")]
+    #[error("signing")]
     Sign(#[from] ordin_sign::Error),
     /// The install root couldn't be walked.
-    #[error("{0}")]
+    #[error(transparent)]
     Walk(#[from] WalkError),
     /// A path doesn't fit Ordin's layout.
-    #[error("{0}")]
+    #[error(transparent)]
     Layout(#[from] LayoutError),
     /// A facet override can't be used.
-    #[error("{0}")]
+    #[error(transparent)]
     Facets(#[from] FacetError),
     /// The license isn't an SPDX expression.
     #[error("the license {license:?}: {why}")]
@@ -138,7 +138,7 @@ pub enum PackError {
     #[error("{0}: declared setuid or setgid, but the file is neither")]
     NotSetuid(TreePath),
     /// A facet's tree breaks a rule, for example by being too large.
-    #[error("the tree for facet {facet}: {source}")]
+    #[error("the tree for facet {facet}")]
     Tree {
         /// The facet.
         facet: Facet,
@@ -146,7 +146,7 @@ pub enum PackError {
         source: Box<ordin_tree::Error>,
     },
     /// Requirements couldn't be inferred.
-    #[error("{0}")]
+    #[error(transparent)]
     Infer(#[from] InferError),
     /// The architecture given isn't the one the files are built for.
     #[error("--arch {given} was given, but {path} is built for {found}")]
@@ -170,7 +170,7 @@ pub enum PackError {
         root: PathBuf,
     },
     /// The install root couldn't be opened to read its files.
-    #[error("{path}: {source}")]
+    #[error("{path}")]
     Root {
         /// The install root.
         path: PathBuf,
@@ -178,10 +178,10 @@ pub enum PackError {
         source: io::Error,
     },
     /// Writing the package failed.
-    #[error("{0}")]
+    #[error(transparent)]
     Write(#[from] WriteError),
     /// The output file couldn't be made or put in place.
-    #[error("{path}: {source}")]
+    #[error("{path}")]
     Output {
         /// The output path.
         path: PathBuf,

@@ -23,12 +23,13 @@ pub struct WalkError {
 #[non_exhaustive]
 pub enum WalkErrorKind {
     /// A system call failed.
-    #[error("can't {action}: {source}")]
+    #[error("can't {action}: {error}")]
     Io {
         /// What was being done.
         action: &'static str,
-        /// The system's error.
-        source: io::Error,
+        /// The system's error. Shown in the message, so not also given as
+        /// the error's source.
+        error: io::Error,
     },
     /// A file name isn't UTF-8, which a tree requires.
     #[error("the name isn't valid UTF-8")]

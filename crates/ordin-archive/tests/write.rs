@@ -23,6 +23,18 @@ mod write {
     use proptest::prelude::*;
     use serde_json::Value;
 
+    /// The error and each cause after it, as `ordin` prints them.
+    fn chain(e: &dyn std::error::Error) -> String {
+        let mut text = e.to_string();
+        let mut next = e.source();
+        while let Some(cause) = next {
+            text.push_str(": ");
+            text.push_str(&cause.to_string());
+            next = cause.source();
+        }
+        text
+    }
+
     const LICENSE: &[u8] = b"Permission is hereby granted, free of charge...\n";
 
     fn p(path: &str) -> TreePath {
@@ -250,7 +262,7 @@ mod write {
         }
 
         fn error(&mut self) -> String {
-            self.write_with(&options()).unwrap_err().to_string()
+            chain(&self.write_with(&options()).unwrap_err())
         }
     }
 
@@ -825,7 +837,7 @@ mod write {
             &mut Vec::new(),
         )
         .unwrap_err();
-        assert_eq!(e.to_string(), "/usr/share/doc/hello/README: read failed");
+        assert_eq!(chain(&e), "/usr/share/doc/hello/README: read failed");
     }
 
     #[test]

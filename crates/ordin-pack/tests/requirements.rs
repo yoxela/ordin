@@ -24,6 +24,18 @@ mod requirements {
         DIR_MODE, Dir, Entry, File, Kind, Symlink, Tree, TreePath, Xattrs, file_digests,
     };
 
+    /// The error and each cause after it, as `ordin` prints them.
+    fn chain(e: &dyn std::error::Error) -> String {
+        let mut text = e.to_string();
+        let mut next = e.source();
+        while let Some(cause) = next {
+            text.push_str(": ");
+            text.push_str(&cause.to_string());
+            next = cause.source();
+        }
+        text
+    }
+
     /// What an ELF fixture holds.
     #[derive(Clone, Default)]
     struct Spec {
@@ -706,7 +718,7 @@ mod requirements {
 
         s.0.clear();
         let e = infer(&t, &mut s).unwrap_err();
-        assert_eq!(e.to_string(), "/usr/bin/broken: no such file");
+        assert_eq!(chain(&e), "/usr/bin/broken: no such file");
     }
 
     #[test]

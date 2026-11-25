@@ -142,7 +142,7 @@ pub enum InferError {
         what: String,
     },
     /// A file couldn't be read.
-    #[error("{path}: {source}")]
+    #[error("{path}")]
     Read {
         /// The file.
         path: TreePath,

@@ -172,6 +172,10 @@ All notable changes to Ordin are recorded here. The format follows [Keep a Chang
 
 ### Fixed
 
+- `ordin` names each cause of an error once. Some errors from `ordin-pack` and `ordin-archive` put their cause in their own message and also gave it as their source, so `ordin pack` printed it twice: a file outside Ordin's layout, or a missing install root, came out as `missing: No such file or directory (os error 2): No such file or directory (os error 2)`. Each error now either shows its cause or gives it as its source, never both.
+  - `PackError`'s `Walk`, `Layout`, `Facets`, `Infer` and `Write` are transparent, so they show and give exactly what they wrap.
+  - `PackError::Sign`, `Tree`, `Root` and `Output`, `WriteError::Tree` and `Read`, and `InferError::Read` no longer repeat their source in their message: `{path}` instead of `{path}: {source}`. A reader that wants the whole story walks `source()`, as `ordin` does.
+  - `WalkErrorKind::Io` is shown inside `WalkError`'s message, so it keeps the system's error in its text, and its field is renamed from `source` to `error` so it no longer also gives it as its source.
 - Reading a tree or a chunk index (ORD-101, ORD-103) no longer builds the whole text as one JSON value, which took about 13 to 19 times the input's size: about 700 MiB for the largest tree and 1 GiB for the largest chunk index. Both now walk the text as written and build one entry, or one chunk, at a time, so memory follows the size of the result. At the largest sizes the format allows, a tree takes 83 MiB beyond its bytes and a chunk index 28 MiB, and both read faster.
   - The bytes each accepts and refuses are unchanged, and so is what they write. The old readers stay as test-only references, and property tests require both to give the same answer on thousands of changed texts.
   - Some refused texts are refused with a different error: where the text breaks the canonical layout first is now found while walking it, so another error further in may no longer come first. The format version is still checked before any other field.
