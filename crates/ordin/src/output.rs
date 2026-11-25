@@ -7,6 +7,12 @@
 //! error. With `--json`, a command prints one JSON object (RFC 8785
 //! canonical form) on standard output instead, errors included, and
 //! nothing on standard error.
+//!
+//! Warnings and errors can quote names from an install root or from inside
+//! a package, so every line on standard error is made safe for a terminal:
+//! control characters and bidirectional formatting characters are written
+//! as `\u{…}`. JSON escapes control characters itself, and a program
+//! reading it gets the exact text.
 
 pub mod show;
 
@@ -252,12 +258,6 @@ pub fn verify_json(report: &Verification) -> String {
     ]))
 }
 
-/// Why a package is corrupt, for people. The error can quote names from
-/// inside the package, so it is made safe for a terminal.
-pub fn corrupt_text(e: &anyhow::Error) -> String {
-    show::safe(&format!("{e:#}"))
-}
-
 /// `ordin verify`'s result as JSON, for a corrupt package.
 pub fn corrupt_json(e: &anyhow::Error) -> String {
     json::canonical(&object([
@@ -271,13 +271,23 @@ pub fn error_json(e: &anyhow::Error) -> String {
     json::canonical(&object([("error", text(format!("{e:#}")))]))
 }
 
+/// The line a warning is printed as, made safe for a terminal.
+fn warning_line(warning: &str) -> String {
+    format!("ordin: warning: {}\n", show::safe(warning))
+}
+
+/// The line an error is printed as, made safe for a terminal.
+fn error_line(message: &str) -> String {
+    format!("ordin: error: {}\n", show::safe(message))
+}
+
 /// Prints a command's result: its warnings on standard error, then the
 /// result on standard output.
 pub fn print(result: &str, warnings: &[String]) {
     let mut err = std::io::stderr().lock();
     for w in warnings {
         // Nothing useful can be done if standard error is gone.
-        let _ = writeln!(err, "ordin: warning: {w}");
+        let _ = err.write_all(warning_line(w).as_bytes());
     }
     let _ = std::io::stdout().lock().write_all(result.as_bytes());
 }
@@ -289,7 +299,9 @@ pub fn print_error(e: &anyhow::Error) {
 
 /// Prints why a command failed on standard error.
 pub fn print_failure(message: &str) {
-    let _ = writeln!(std::io::stderr().lock(), "ordin: error: {message}");
+    let _ = std::io::stderr()
+        .lock()
+        .write_all(error_line(message).as_bytes());
 }
 
 #[cfg(test)]
@@ -297,13 +309,26 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_corrupt_package_is_described_safely_for_a_terminal() {
+    fn every_line_on_standard_error_is_safe_for_a_terminal() {
+        assert_eq!(
+            error_line("/usr/bin/\u{202e}txt.sh in facet runtime: \x1b[2Jwrong"),
+            "ordin: error: /usr/bin/\\u{202e}txt.sh in facet runtime: \\u{1b}[2Jwrong\n"
+        );
+        assert_eq!(
+            warning_line("/opt/x\u{2066}y: not declared\r"),
+            "ordin: warning: /opt/x\\u{2066}y: not declared\\u{d}\n"
+        );
+        // Already escaped text and plain text are left as they are.
+        assert_eq!(
+            error_line(r"/x\u{1b}: a name: \\ é"),
+            "ordin: error: /x\\u{1b}: a name: \\\\ é\n"
+        );
+    }
+
+    #[test]
+    fn a_corrupt_package_is_reported_exactly_in_json() {
         let e = anyhow::anyhow!("/usr/bin/\u{202e}txt.sh in facet runtime: wrong")
             .context("p.ordin is corrupt");
-        assert_eq!(
-            corrupt_text(&e),
-            "p.ordin is corrupt: /usr/bin/\\u{202e}txt.sh in facet runtime: wrong"
-        );
         assert_eq!(
             corrupt_json(&e),
             "{\"error\":\"p.ordin is corrupt: /usr/bin/\u{202e}txt.sh in facet runtime: wrong\",\
