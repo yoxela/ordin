@@ -317,11 +317,11 @@ mod cli {
         let (code, err) = fails(dir.path(), &["--license", "NONE", "-o", "ro/x.ordin"]);
         fs::set_permissions(&ro, Permissions::from_mode(0o755)).unwrap();
         assert_eq!(code, Some(1));
-        assert!(
-            err.starts_with("ordin: error: ro/x.ordin: Permission denied (os error 13)"),
-            "{err}"
+        // The system's error only, without the temporary file's path.
+        assert_eq!(
+            err.lines().last().unwrap(),
+            "ordin: error: ro/x.ordin: Permission denied (os error 13)"
         );
-        assert_eq!(err.matches("Permission denied").count(), 1, "{err}");
     }
 
     #[test]
@@ -856,6 +856,22 @@ mod cli {
             .collect();
         assert_eq!(both, expected);
         assert_eq!(mode(&dir.path().join("both.ordin")), 0o644);
+        // An output directory that can't be written: the system's error
+        // only, without the temporary file's path.
+        let ro = dir.path().join("ro");
+        fs::create_dir(&ro).unwrap();
+        fs::set_permissions(&ro, Permissions::from_mode(0o555)).unwrap();
+        let o = ordin(
+            dir.path(),
+            &["sign", "hello.ordin", "--key", "bob", "-o", "ro/x.ordin"],
+        );
+        fs::set_permissions(&ro, Permissions::from_mode(0o755)).unwrap();
+        assert_eq!(o.status.code(), Some(1));
+        assert_eq!(
+            stderr(&o),
+            "ordin: error: ro/x.ordin: Permission denied (os error 13)\n"
+        );
+        assert_eq!(fs::read_dir(&ro).unwrap().count(), 0);
     }
 
     #[test]
