@@ -22,6 +22,18 @@ mod packing {
     use serde_json::Value;
     use tempfile::TempDir;
 
+    /// The error and each cause after it, as `ordin` prints them.
+    fn chain(e: &dyn std::error::Error) -> String {
+        let mut text = e.to_string();
+        let mut next = e.source();
+        while let Some(cause) = next {
+            text.push_str(": ");
+            text.push_str(&cause.to_string());
+            next = cause.source();
+        }
+        text
+    }
+
     fn temp() -> TempDir {
         tempfile::tempdir_in(env!("CARGO_TARGET_TMPDIR")).unwrap()
     }
@@ -488,9 +500,14 @@ mod packing {
         let e = pk(&options(&dir.path().join("root")), &out).unwrap_err();
         fs::set_permissions(&ro, Permissions::from_mode(0o755)).unwrap();
         assert!(
-            e.to_string().starts_with(&format!("{}: ", out.display())),
-            "{e}"
+            chain(&e).starts_with(&format!(
+                "{}: Permission denied (os error 13)",
+                out.display()
+            )),
+            "{}",
+            chain(&e)
         );
+        assert_eq!(chain(&e).matches("Permission denied").count(), 1);
         assert!(matches!(e, PackError::Output { .. }));
         assert_eq!(fs::read_dir(&ro).unwrap().count(), 0);
     }

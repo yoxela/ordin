@@ -283,6 +283,48 @@ mod cli {
     }
 
     #[test]
+    fn each_cause_is_named_once() {
+        let dir = fixture();
+        // A layout error, from inside the packer.
+        write(&dir.path().join("root"), "x", b"x\n", 0o644);
+        let (code, err) = fails(dir.path(), &[]);
+        assert_eq!(code, Some(1));
+        assert_eq!(
+            err.lines().last().unwrap(),
+            "ordin: error: /x: outside Ordin's layout, which packages usr/, etc/ and var/; \
+             if the software was installed with a prefix here, pass it with --prefix to move \
+             it under /usr"
+        );
+        fs::remove_file(dir.path().join("root/x")).unwrap();
+        // The system's error, under the path it is about.
+        let missing = ["pack", "missing", "--name", "hello", "--version", "2.12"];
+        let o = ordin(dir.path(), &missing);
+        assert_eq!(o.status.code(), Some(1));
+        assert_eq!(
+            stderr(&o),
+            "ordin: error: missing: No such file or directory (os error 2)\n"
+        );
+        let o = ordin(dir.path(), &[&missing[..], &["--json"]].concat());
+        assert_eq!(o.status.code(), Some(1));
+        assert_eq!(
+            stdout(&o),
+            r#"{"error":"missing: No such file or directory (os error 2)"}"#
+        );
+        // An output directory that can't be written.
+        let ro = dir.path().join("ro");
+        fs::create_dir(&ro).unwrap();
+        fs::set_permissions(&ro, Permissions::from_mode(0o555)).unwrap();
+        let (code, err) = fails(dir.path(), &["--license", "NONE", "-o", "ro/x.ordin"]);
+        fs::set_permissions(&ro, Permissions::from_mode(0o755)).unwrap();
+        assert_eq!(code, Some(1));
+        assert!(
+            err.starts_with("ordin: error: ro/x.ordin: Permission denied (os error 13)"),
+            "{err}"
+        );
+        assert_eq!(err.matches("Permission denied").count(), 1, "{err}");
+    }
+
+    #[test]
     fn license_texts_are_at_most_a_mebibyte() {
         let dir = fixture();
         let limit = 1 << 20;

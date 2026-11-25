@@ -24,7 +24,7 @@ pub enum WriteError {
     #[error("the manifest: {0}")]
     Manifest(Box<ordin_manifest::Error>),
     /// A facet's tree breaks a rule.
-    #[error("the tree for facet {facet}: {source}")]
+    #[error("the tree for facet {facet}")]
     Tree {
         /// The facet.
         facet: Facet,
@@ -120,7 +120,7 @@ pub enum WriteError {
         max: usize,
     },
     /// A file couldn't be opened or read.
-    #[error("{path}: {source}")]
+    #[error("{path}")]
     Read {
         /// The file's path in the tree.
         path: TreePath,
