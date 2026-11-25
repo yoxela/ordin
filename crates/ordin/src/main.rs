@@ -5,7 +5,8 @@
 //!
 //! Exit codes: 0 when the command did what it was asked, 1 when it
 //! couldn't (the error says why), and 2 when the command line itself is
-//! wrong.
+//! wrong. `ordin verify` adds 3 for a corrupt package, 4 for an intact one
+//! that isn't signed, and 5 for one signed by no trusted key.
 
 mod cli;
 mod files;
@@ -15,12 +16,14 @@ mod pack;
 mod passphrase;
 mod show;
 mod sign;
+mod verify;
 
 use std::process::ExitCode;
 
 use clap::Parser;
 
 use crate::cli::{Cli, Command, KeyCommand};
+use crate::verify::Checked;
 
 fn main() -> ExitCode {
     let cli = Cli::parse();
@@ -51,6 +54,28 @@ fn main() -> ExitCode {
             Ok(signed) => {
                 output::print(&output::sign_text(&signed), &[]);
                 ExitCode::SUCCESS
+            }
+            Err(e) => fail(&e, args.json),
+        },
+        Command::Verify(args) => match verify::run(&args) {
+            Ok(Checked::Intact(report)) => {
+                if args.json {
+                    output::print(&output::verify_json(&report), &[]);
+                } else {
+                    output::print(&output::verify_text(&report), &[]);
+                    if let Some(why) = output::verify_failure(&report) {
+                        output::print_failure(&why);
+                    }
+                }
+                ExitCode::from(report.verdict().exit_code())
+            }
+            Ok(Checked::Corrupt(e)) => {
+                if args.json {
+                    output::print(&output::corrupt_json(&e), &[]);
+                } else {
+                    output::print_failure(&output::corrupt_text(&e));
+                }
+                ExitCode::from(verify::CORRUPT)
             }
             Err(e) => fail(&e, args.json),
         },

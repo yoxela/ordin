@@ -7,6 +7,7 @@ use std::io;
 
 use ordin_core::{Digest, Facet};
 use ordin_tree::TreePath;
+use ordin_tree::chunk::ChunkParams;
 
 /// Why a `.ordin` file couldn't be written. Nothing written before the
 /// error is a usable file.
@@ -477,6 +478,49 @@ pub enum ReadErrorKind {
     /// Writing a file's content to the output failed.
     #[error("writing it out: {0}")]
     Output(io::Error),
+    /// A file's content isn't the fs-verity digest its tree records.
+    #[error("the tree records the fs-verity digest {recorded}, but its content gives {read}")]
+    Fsverity {
+        /// The fs-verity digest the tree records.
+        recorded: Digest,
+        /// The fs-verity digest of the content.
+        read: Digest,
+    },
+    /// Cutting a file's content again with the chunking the chunk index
+    /// records doesn't give the chunks the index lists for it.
+    #[error(
+        "cut again with the chunk index's chunking ({chunking}), it gives other chunks \
+         than the index lists, from chunk {at}"
+    )]
+    Rechunked {
+        /// The chunking the index records.
+        chunking: ChunkParams,
+        /// The first chunk that differs, counted from 0.
+        at: usize,
+    },
+    /// A chunk pack holds a chunk that no file of its facet uses.
+    #[error("it holds the chunk {digest}, which no file of the facet uses")]
+    UnusedChunk {
+        /// The chunk's digest.
+        digest: Digest,
+    },
+    /// A chunk pack's chunks aren't in the order the facet's files first
+    /// use them, the order the writer stores them in.
+    #[error("its chunks aren't in the order the facet's files first use them, from chunk {at}")]
+    ChunkOrder {
+        /// The first chunk out of order, counted from 0.
+        at: usize,
+    },
+    /// The chunk index lists content that no file of the package needs
+    /// listed.
+    #[error(
+        "it lists the content {content}, which no file at or above the whole-file \
+         threshold has"
+    )]
+    UnusedIndexEntry {
+        /// The content listed.
+        content: Digest,
+    },
 }
 
 /// Why a pack table couldn't be read.

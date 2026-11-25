@@ -43,6 +43,7 @@ pub use pack::{
 };
 pub use read::{
     MAX_ENTRIES, MAX_IMAGE_MANIFEST_SIZE, MAX_INDEX_SIZE, MAX_LICENSE_TEXT, MAX_SIGNATURES, Reader,
+    Verified, VerifiedFacet,
 };
 pub use tar::MAX_ENTRY_SIZE;
 pub use write::{LEVEL, MAX_LEVEL, Options, Package, Source, Written, rewrite, write};

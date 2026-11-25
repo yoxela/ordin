@@ -89,6 +89,19 @@ Signs a package with the secret key `NAME`, adding its signature, or replacing t
 - **The key** must be readable and writable by its owner only, as `ssh` requires; otherwise it is refused, with the `chmod` to run. Its passphrase is asked for on the terminal, or read from `--passphrase-file`.
 - **It prints** the file, the key, the package and how many signatures it now carries. With `--json`: `file`, `image`, `key`, `package`, `replaced` (whether it replaced the key's earlier signature) and `signatures` (every key, sorted).
 
+## `ordin verify`
+
+```
+ordin verify FILE [--trust KEY.pub]... [--json]
+```
+
+Checks that a package is intact, every byte of it, and that a key you trust signed it.
+
+- **Every byte.** Each blob is checked against both digests its descriptor records, each part against its format, and each file is put together from its chunks and checked against the size, BLAKE3 and fs-verity digests its tree records. Each file is also cut again with the chunking the chunk index records, which must give exactly the chunks the index lists, so a package can't claim one chunking and carry another. Anything else the writer wouldn't write is refused too: a chunk no file uses, chunks out of order, an index entry nothing needs. A single changed byte anywhere fails, and the error names the part it is in.
+- **Trust.** `--trust` names the public key file (`ordin key generate`'s `NAME.pub`) of a signer you trust; give it once for each key. Only a signature by one of those keys makes the package trusted. Without `--trust`, no key is: an intact, signed package then exits 5, so 0 always means "signed by a key you chose".
+- **It prints** that the file is intact, the package and image digests, each facet's files, chunks and size, and each signature's key, trusted or not. When the package isn't trusted, standard error says why. With `--json`: `facets` (each with `chunks`, `facet`, `files` and `size`), `file`, `image`, `licenses`, `package`, `result` (`trusted`, `unsigned` or `untrusted`) and `signatures` (each with `key` and `trusted`, sorted by key). A corrupt package prints `{"error": "...", "result": "corrupt"}`.
+- **Exit codes**, worst first: 3 if the package is corrupt, 4 if it is intact but not signed, 5 if it is signed only by keys not given with `--trust`, and 0 if a trusted key signed it. 1 means it couldn't be checked: the file can't be read, or a `--trust` file isn't a public key file.
+
 ## Exit codes
 
 | Code | Meaning |
@@ -96,3 +109,6 @@ Signs a package with the secret key `NAME`, adding its signature, or replacing t
 | 0 | The command did what it was asked |
 | 1 | It couldn't; the error says why |
 | 2 | The command line is wrong |
+| 3 | `ordin verify`: the package is corrupt |
+| 4 | `ordin verify`: the package is intact but not signed |
+| 5 | `ordin verify`: the package is signed, but by no key given with `--trust` |

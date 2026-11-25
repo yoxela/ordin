@@ -960,5 +960,9 @@ impl<R> Reader<R> {
     }
 }
 
+mod verify;
+
+pub use verify::{Verified, VerifiedFacet};
+
 #[cfg(test)]
 mod tests;

@@ -87,11 +87,22 @@ disallowed_methods = "deny"
 codegen-units = 1
 strip = "debuginfo"
 
-# Argon2id at 64 MiB (ORD-140) takes many seconds unoptimized, and tests,
-# coverage and mutation testing all build the dev profile. Only these two
-# crates are optimized there; release builds are unchanged.
+# Tests, coverage and mutation testing all build the dev profile, and some
+# work is far slower unoptimized: Argon2id at 64 MiB (ORD-140) takes many
+# seconds, and verifying a package once for every byte changed (ORD-133)
+# runs Ed25519, SHA-256 and BLAKE3 thousands of times. Only these
+# dependencies are optimized there; release builds are unchanged.
 [profile.dev.package.argon2]
 opt-level = 3
 
 [profile.dev.package.blake2]
+opt-level = 3
+
+[profile.dev.package.curve25519-dalek]
+opt-level = 3
+
+[profile.dev.package.sha2]
+opt-level = 3
+
+[profile.dev.package.blake3]
 opt-level = 3

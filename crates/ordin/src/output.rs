@@ -18,6 +18,7 @@ use ordin_core::json::{self, MAX_INT, Value};
 use crate::keys::Generated;
 use crate::pack::Report;
 use crate::sign::Signed;
+use crate::verify::{Report as Verification, Verdict};
 
 fn text(s: impl ToString) -> Value {
     Value::Str(s.to_string())
@@ -162,6 +163,109 @@ pub fn key_warnings(made: &Generated) -> Vec<String> {
     )]
 }
 
+/// `n` and `thing`, plural unless `n` is 1.
+fn count(n: usize, thing: &str) -> String {
+    if n == 1 {
+        format!("1 {thing}")
+    } else {
+        format!("{n} {thing}s")
+    }
+}
+
+/// `ordin verify`'s result for people, for an intact package.
+pub fn verify_text(report: &Verification) -> String {
+    let facets: Vec<String> = report
+        .verified
+        .facets
+        .iter()
+        .map(|f| {
+            format!(
+                "{} ({} in {}, {})",
+                f.facet,
+                count(f.files, "file"),
+                count(f.chunks, "chunk"),
+                show::size(f.size)
+            )
+        })
+        .collect();
+    let mut out = format!(
+        "{} is intact\npackage {}\nimage {}\nfacets: {}\n",
+        report.file.display(),
+        report.package,
+        report.image,
+        // A manifest has at least one facet.
+        facets.join(", ")
+    );
+    if report.signers.is_empty() {
+        out.push_str("not signed\n");
+    }
+    for (key, trusted) in &report.signers {
+        let trusted = if *trusted { "trusted" } else { "not trusted" };
+        out.push_str(&format!("signed by {key}, {trusted}\n"));
+    }
+    out
+}
+
+/// Why an intact package isn't trusted, if it isn't.
+pub fn verify_failure(report: &Verification) -> Option<String> {
+    let file = report.file.display();
+    match report.verdict() {
+        Verdict::Trusted => None,
+        Verdict::Unsigned => Some(format!("{file} is intact but not signed")),
+        Verdict::Untrusted if report.trust_given => Some(format!(
+            "{file} is intact, but no key given with --trust signed it"
+        )),
+        Verdict::Untrusted => Some(format!(
+            "{file} is intact, but no key is trusted; give the keys you trust with --trust"
+        )),
+    }
+}
+
+/// `ordin verify`'s result as JSON, for an intact package.
+pub fn verify_json(report: &Verification) -> String {
+    let facets = report
+        .verified
+        .facets
+        .iter()
+        .map(|f| {
+            object([
+                ("chunks", int(f.chunks as u64)),
+                ("facet", text(&f.facet)),
+                ("files", int(f.files as u64)),
+                ("size", int(f.size)),
+            ])
+        })
+        .collect();
+    let signatures = report
+        .signers
+        .iter()
+        .map(|(key, trusted)| object([("key", text(key)), ("trusted", Value::Bool(*trusted))]))
+        .collect();
+    json::canonical(&object([
+        ("facets", Value::Array(facets)),
+        ("file", text(report.file.display())),
+        ("image", text(report.image)),
+        ("licenses", int(report.verified.licenses as u64)),
+        ("package", text(report.package)),
+        ("result", text(report.verdict().name())),
+        ("signatures", Value::Array(signatures)),
+    ]))
+}
+
+/// Why a package is corrupt, for people. The error can quote names from
+/// inside the package, so it is made safe for a terminal.
+pub fn corrupt_text(e: &anyhow::Error) -> String {
+    show::safe(&format!("{e:#}"))
+}
+
+/// `ordin verify`'s result as JSON, for a corrupt package.
+pub fn corrupt_json(e: &anyhow::Error) -> String {
+    json::canonical(&object([
+        ("error", text(format!("{e:#}"))),
+        ("result", text("corrupt")),
+    ]))
+}
+
 /// An error as JSON.
 pub fn error_json(e: &anyhow::Error) -> String {
     json::canonical(&object([("error", text(format!("{e:#}")))]))
@@ -180,5 +284,37 @@ pub fn print(result: &str, warnings: &[String]) {
 
 /// Prints an error on standard error.
 pub fn print_error(e: &anyhow::Error) {
-    let _ = writeln!(std::io::stderr().lock(), "ordin: error: {e:#}");
+    print_failure(&format!("{e:#}"));
+}
+
+/// Prints why a command failed on standard error.
+pub fn print_failure(message: &str) {
+    let _ = writeln!(std::io::stderr().lock(), "ordin: error: {message}");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_corrupt_package_is_described_safely_for_a_terminal() {
+        let e = anyhow::anyhow!("/usr/bin/\u{202e}txt.sh in facet runtime: wrong")
+            .context("p.ordin is corrupt");
+        assert_eq!(
+            corrupt_text(&e),
+            "p.ordin is corrupt: /usr/bin/\\u{202e}txt.sh in facet runtime: wrong"
+        );
+        assert_eq!(
+            corrupt_json(&e),
+            "{\"error\":\"p.ordin is corrupt: /usr/bin/\u{202e}txt.sh in facet runtime: wrong\",\
+             \"result\":\"corrupt\"}"
+        );
+    }
+
+    #[test]
+    fn counts_are_plural_unless_one() {
+        assert_eq!(count(0, "file"), "0 files");
+        assert_eq!(count(1, "file"), "1 file");
+        assert_eq!(count(2, "chunk"), "2 chunks");
+    }
 }

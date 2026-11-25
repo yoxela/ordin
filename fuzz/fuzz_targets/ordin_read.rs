@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // SPDX-FileCopyrightText: 2026 The Ordin Authors
 
-//! Reading `.ordin` files (ORD-131), signed (ORD-140). Any bytes are read or refused, never
-//! a panic, and a changed package is either refused or gives exactly the
-//! content it held before.
+//! Reading `.ordin` files (ORD-131), signed (ORD-140), and verifying them
+//! (ORD-133). Any bytes are read or refused, never a panic; a changed
+//! package is either refused or gives exactly the content it held before;
+//! and `verify` refuses any package whose bytes changed at all.
 //!
 //! An input whose first byte is even is read as a whole file. Otherwise
 //! the rest is a list of changes to a small package written at start-up:
@@ -33,6 +34,11 @@ struct Everything {
     licenses: Vec<Vec<u8>>,
     trees: Vec<Tree>,
     files: Vec<Vec<u8>>,
+}
+
+/// Opens and verifies `bytes`.
+fn verifies(bytes: &[u8]) -> bool {
+    Reader::open(Cursor::new(bytes)).and_then(|mut r| r.verify()).is_ok()
 }
 
 fn read_all(bytes: &[u8]) -> Option<Everything> {
@@ -156,6 +162,7 @@ fn base() -> &'static (Vec<u8>, Everything) {
         )
         .expect("the package is written");
         let all = read_all(&out).expect("the package reads back");
+        assert!(verifies(&out), "the package verifies");
         (out, all)
     })
 }
@@ -166,6 +173,7 @@ fuzz_target!(|data: &[u8]| {
     };
     if mode % 2 == 0 {
         let _ = read_all(rest);
+        let _ = verifies(rest);
         return;
     }
     let (bytes, all) = base();
@@ -177,5 +185,8 @@ fuzz_target!(|data: &[u8]| {
     }
     if let Some(read) = read_all(&changed) {
         assert_eq!(&read, all, "an accepted change must give the same content");
+    }
+    if changed != *bytes {
+        assert!(!verifies(&changed), "a changed package must not verify");
     }
 });

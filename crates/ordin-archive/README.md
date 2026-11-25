@@ -41,3 +41,14 @@ The ustar writer and the OCI JSON are Ordin's own, so a dependency update can't 
 - `read_file(facet, table, index, path, file, out)`: a file chunk by chunk, checked as a whole against its tree record at the end
 
 A hostile file can't make the reader hold more than one part at a time. Each error names the `Part` that failed. `FORMAT.md` lists every check and limit.
+
+## Verifying
+
+`reader.verify()` checks every byte that opening didn't, and returns what it checked per facet (`Verified`):
+- **Every blob** against both digests its descriptor records, the chunk packs included. A zstd frame can change in places that don't change what it decompresses to, so checking each chunk alone isn't enough.
+- **Every part** as its reader reads it: license texts, trees, the chunk index and the pack tables.
+- **Every file**, once per content in each facet, put together from its chunks, each checked against its digest. The whole is checked against the size, BLAKE3 and fs-verity digests its tree records.
+- **The chunking.** Each file is cut again with the chunking the chunk index records, and must give exactly the chunks the index lists. The package's identity covers only the manifest, so a chunk index and packs with self-consistent digests could otherwise claim one chunking and carry another.
+- **What the writer writes.** A chunk pack must hold only the chunks its facet's files use, in the order they first use them, and the chunk index must list only content at or above the whole-file threshold that some file has.
+
+The checks run in that order, so a changed byte is reported against the part that holds it. Whether a signature's key is trusted is the caller's question: `ordin verify --trust` answers it.
