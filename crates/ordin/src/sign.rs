@@ -4,14 +4,16 @@
 //! `ordin sign`: adds a signature to a package, or replaces the key's
 //! own, without changing anything else.
 
-use std::io::{BufReader, BufWriter, Write};
-use std::os::unix::fs::PermissionsExt;
+use std::fs::OpenOptions;
+use std::io::{self, BufReader, BufWriter, Write};
+use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use ordin_archive::Reader;
 use ordin_core::Digest;
 use ordin_sign::{PublicKey, Signature};
+use tempfile::NamedTempFile;
 
 use crate::cli::SignArgs;
 use crate::{files, keys};
@@ -33,6 +35,26 @@ pub struct Signed {
     pub signatures: Vec<PublicKey>,
 }
 
+/// Makes the temporary file a signed package is written to, in `dir`, as
+/// `tempfile` would: under a name nothing has yet (`O_EXCL`, so an
+/// existing file or symlink is never opened), readable and writable by its
+/// owner only, and removed if it is dropped. It is opened here, and not by
+/// `tempfile`, because `tempfile` adds the temporary file's full path to
+/// the system's error, and the error is about the output named.
+fn temp_file_in(dir: &Path) -> io::Result<NamedTempFile> {
+    tempfile::Builder::new()
+        .prefix(".ordin-")
+        .suffix(".tmp")
+        .make_in(dir, |path| {
+            OpenOptions::new()
+                .read(true)
+                .write(true)
+                .create_new(true)
+                .mode(0o600)
+                .open(path)
+        })
+}
+
 /// Writes `out` from a temporary file in its directory, so a failure
 /// leaves the old file as it was, and syncs the rename.
 fn replace(out: &Path, write: impl FnOnce(&mut dyn Write) -> Result<()>) -> Result<()> {
@@ -41,11 +63,7 @@ fn replace(out: &Path, write: impl FnOnce(&mut dyn Write) -> Result<()>) -> Resu
         Some(p) if !p.as_os_str().is_empty() => p.to_path_buf(),
         _ => PathBuf::from("."),
     };
-    let temp = tempfile::Builder::new()
-        .prefix(".ordin-")
-        .suffix(".tmp")
-        .tempfile_in(&dir)
-        .with_context(shown)?;
+    let temp = temp_file_in(&dir).with_context(shown)?;
     let mut writer = BufWriter::new(temp.as_file());
     write(&mut writer)?;
     writer.flush().with_context(shown)?;
@@ -98,4 +116,29 @@ pub fn run(args: &SignArgs) -> Result<Signed> {
         replaced,
         signatures: signatures.iter().map(Signature::key).collect(),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_temporary_file_is_new_and_private() {
+        let dir = tempfile::tempdir().unwrap();
+        let temp = temp_file_in(dir.path()).unwrap();
+        let name = temp.path().file_name().unwrap().to_str().unwrap();
+        assert!(
+            name.starts_with(".ordin-") && name.ends_with(".tmp"),
+            "{name}"
+        );
+        assert_eq!(temp.path().parent().unwrap(), dir.path());
+        let mode = temp.as_file().metadata().unwrap().permissions().mode();
+        assert_eq!(mode & 0o7777, 0o600);
+        let path = temp.path().to_path_buf();
+        drop(temp);
+        assert!(!path.exists());
+        // The system's error, as it was.
+        let e = temp_file_in(&dir.path().join("missing")).unwrap_err();
+        assert_eq!(e.to_string(), "No such file or directory (os error 2)");
+    }
 }
