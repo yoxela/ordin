@@ -499,15 +499,10 @@ mod packing {
         let out = ro.join("x.ordin");
         let e = pk(&options(&dir.path().join("root")), &out).unwrap_err();
         fs::set_permissions(&ro, Permissions::from_mode(0o755)).unwrap();
-        assert!(
-            chain(&e).starts_with(&format!(
-                "{}: Permission denied (os error 13)",
-                out.display()
-            )),
-            "{}",
-            chain(&e)
+        assert_eq!(
+            chain(&e),
+            format!("{}: Permission denied (os error 13)", out.display())
         );
-        assert_eq!(chain(&e).matches("Permission denied").count(), 1);
         assert!(matches!(e, PackError::Output { .. }));
         assert_eq!(fs::read_dir(&ro).unwrap().count(), 0);
     }

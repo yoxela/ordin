@@ -4,8 +4,9 @@
 //! Rung 0: an install root to a `.ordin` file, in one call.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::fs::OpenOptions;
 use std::io::{self, BufWriter, Write};
-use std::os::unix::fs::PermissionsExt;
+use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -20,6 +21,7 @@ use ordin_sign::SecretKey;
 use ordin_tree::chunk::ChunkParams;
 use ordin_tree::{Kind, TreePath};
 use ordin_version::Version;
+use tempfile::NamedTempFile;
 
 use crate::error::WalkError;
 use crate::facets::{FacetError, FacetNote, classify};
@@ -424,11 +426,7 @@ pub fn pack(options: &PackOptions, out: &Output) -> Result<Packed, PackError> {
         path: out.to_path_buf(),
         source,
     };
-    let temp = tempfile::Builder::new()
-        .prefix(".ordin-")
-        .suffix(".tmp")
-        .tempfile_in(&dir)
-        .map_err(output)?;
+    let temp = temp_file_in(&dir).map_err(output)?;
     let mut writer = BufWriter::new(temp.as_file());
     let package = Package {
         manifest: &manifest,
@@ -459,9 +457,49 @@ pub fn pack(options: &PackOptions, out: &Output) -> Result<Packed, PackError> {
     })
 }
 
+/// Makes the temporary file a package is written to, in `dir`, as
+/// `tempfile` would: under a name nothing has yet (`O_EXCL`, so an
+/// existing file or symlink is never opened), readable and writable by its
+/// owner only, and removed if it is dropped. It is opened here, and not by
+/// `tempfile`, because `tempfile` adds the temporary file's full path to
+/// the system's error, and the error is about the output named.
+fn temp_file_in(dir: &Path) -> io::Result<NamedTempFile> {
+    tempfile::Builder::new()
+        .prefix(".ordin-")
+        .suffix(".tmp")
+        .make_in(dir, |path| {
+            OpenOptions::new()
+                .read(true)
+                .write(true)
+                .create_new(true)
+                .mode(0o600)
+                .open(path)
+        })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_temporary_file_is_new_and_private() {
+        let dir = tempfile::tempdir().unwrap();
+        let temp = temp_file_in(dir.path()).unwrap();
+        let name = temp.path().file_name().unwrap().to_str().unwrap();
+        assert!(
+            name.starts_with(".ordin-") && name.ends_with(".tmp"),
+            "{name}"
+        );
+        assert_eq!(temp.path().parent().unwrap(), dir.path());
+        let mode = temp.as_file().metadata().unwrap().permissions().mode();
+        assert_eq!(mode & 0o7777, 0o600);
+        let path = temp.path().to_path_buf();
+        drop(temp);
+        assert!(!path.exists());
+        // The system's error, as it was.
+        let e = temp_file_in(&dir.path().join("missing")).unwrap_err();
+        assert_eq!(e.to_string(), "No such file or directory (os error 2)");
+    }
 
     #[test]
     fn the_default_file_name_names_the_package() {
