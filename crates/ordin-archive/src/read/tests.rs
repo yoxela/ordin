@@ -1875,3 +1875,6 @@ fn signing_again_says_when_reading_the_package_fails() {
         assert_eq!(e.to_string(), said);
     }
 }
+
+// Verifying (ORD-133).
+mod verify;

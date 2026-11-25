@@ -91,7 +91,7 @@ The manifest records each facet's tree, and each tree records each file's size a
 
 A changed index can't make a host install other content, because every file is checked against its tree when it is reassembled. It can only make a download fail.
 
-`ordin verify` (ORD-133) also cuts each file again with the index's recorded settings and compares, so a package can't claim one chunking and carry another.
+Verifying (`ordin verify`, ORD-133) also cuts each file again with the index's recorded settings and compares, so a package can't claim one chunking and carry another.
 
 ## Chunk packs
 
@@ -158,6 +158,14 @@ A `.ordin` file is outside input. A reader accepts only what a writer of this fo
 - **A pack table** must be exactly the canonical text, with each frame 1 to 16,842,752 bytes long and starting where the one before it ends, and the last ending where the pack ends.
 - **A chunk** must be listed in its pack table, inside the pack. Its frame must start with zstd's magic number, have no checksum or dictionary ID, be exactly one frame, and record exactly the chunk's length. It is decompressed with a window of at most 16 MiB, and must have the chunk's BLAKE3 digest.
 - **A file** is put together from the chunks the chunk index lists for it. Each chunk is checked as it is read, and the whole must have the size and content digest its tree records. This is what keeps the unsigned chunk index harmless.
+
+**Verifying reads everything** (`Reader::verify`, ORD-133), in this order, so a changed byte is reported against the part that holds it:
+- **Every blob** against its SHA-256 and BLAKE3 digests, the chunk packs included: a zstd frame has bytes that can change without changing what it decompresses to.
+- **Every part** as above: each license text, tree and pack table, and the chunk index.
+- **Every file**, once per content in each facet, put together from its chunks. The whole must also have the fs-verity digest its tree records.
+- **The chunking.** Each file, cut again with the chunking the chunk index records, must give exactly the chunks the index lists for it. A file under the whole-file threshold is its one chunk.
+- **The pack.** A facet's chunk pack must hold exactly the chunks its files use, in the order they first use them, as the Order rule above says.
+- **The index** must list only content that a file at or above the whole-file threshold has.
 
 **The limits:**
 

@@ -28,6 +28,8 @@ pub enum Command {
     Show(ShowArgs),
     /// Sign a package with a key, or sign it again.
     Sign(SignArgs),
+    /// Check that a package is intact and signed by a key you trust.
+    Verify(VerifyArgs),
     /// Manage signing keys.
     #[command(subcommand)]
     Key(KeyCommand),
@@ -74,6 +76,20 @@ pub struct SignArgs {
     /// The file to write; the package itself if not given.
     #[arg(long, short)]
     pub out: Option<PathBuf>,
+    /// Print the result as JSON.
+    #[arg(long)]
+    pub json: bool,
+}
+
+/// `ordin verify`.
+#[derive(Debug, Args)]
+pub struct VerifyArgs {
+    /// The package file.
+    pub file: PathBuf,
+    /// A public key file of a signer you trust. Give it once for each
+    /// key; without it, no signature is trusted.
+    #[arg(long, value_name = "KEY.pub")]
+    pub trust: Vec<PathBuf>,
     /// Print the result as JSON.
     #[arg(long)]
     pub json: bool,

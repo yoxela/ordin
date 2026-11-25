@@ -1050,4 +1050,202 @@ mod cli {
             "ordin: error: root: a passphrase file must be a regular file\n"
         );
     }
+
+    // ordin verify (ORD-133).
+
+    fn verify(dir: &Path, extra: &[&str]) -> (Option<i32>, String, String) {
+        let mut args = vec!["verify", "hello.ordin"];
+        args.extend(extra);
+        let o = ordin(dir, &args);
+        (o.status.code(), stdout(&o), stderr(&o))
+    }
+
+    /// What `ordin verify` prints about the packed fixture, before the
+    /// signature lines.
+    fn intact(dir: &Path) -> String {
+        let shown = show_json(dir, "hello.ordin");
+        format!(
+            "hello.ordin is intact\npackage {}\nimage {}\n\
+             facets: doc (1 file in 1 chunk, 12 B), runtime (1 file in 1 chunk, 21 B)\n",
+            shown["package"].as_str().unwrap(),
+            shown["image"].as_str().unwrap()
+        )
+    }
+
+    #[test]
+    fn verify_says_whether_a_key_you_trust_signed_the_package() {
+        let dir = packed();
+        let d = dir.path();
+        let alice = clear_key(d, "alice");
+        let bob = clear_key(d, "bob");
+        assert_eq!(
+            verify(d, &["--trust", "alice.pub"]),
+            (
+                Some(4),
+                format!("{}not signed\n", intact(d)),
+                "ordin: error: hello.ordin is intact but not signed\n".to_owned()
+            )
+        );
+        let o = ordin(d, &["sign", "hello.ordin", "--key", "alice"]);
+        assert_eq!(o.status.code(), Some(0), "{}", stderr(&o));
+        let untrusted = format!("{}signed by {alice}, not trusted\n", intact(d));
+        assert_eq!(
+            verify(d, &[]),
+            (
+                Some(5),
+                untrusted.clone(),
+                "ordin: error: hello.ordin is intact, but no key is trusted; \
+                 give the keys you trust with --trust\n"
+                    .to_owned()
+            )
+        );
+        assert_eq!(
+            verify(d, &["--trust", "bob.pub"]),
+            (
+                Some(5),
+                untrusted,
+                "ordin: error: hello.ordin is intact, but no key given with --trust signed it\n"
+                    .to_owned()
+            )
+        );
+        assert_eq!(
+            verify(d, &["--trust", "bob.pub", "--trust", "alice.pub"]),
+            (
+                Some(0),
+                format!("{}signed by {alice}, trusted\n", intact(d)),
+                String::new()
+            )
+        );
+        // Two signers: one trusted is enough, and each is listed by key.
+        let o = ordin(d, &["sign", "hello.ordin", "--key", "bob"]);
+        assert_eq!(o.status.code(), Some(0), "{}", stderr(&o));
+        let mut lines = [
+            format!("signed by {alice}, not trusted"),
+            format!("signed by {bob}, trusted"),
+        ];
+        lines.sort();
+        assert_eq!(
+            verify(d, &["--trust", "bob.pub"]),
+            (
+                Some(0),
+                format!("{}{}\n", intact(d), lines.join("\n")),
+                String::new()
+            )
+        );
+    }
+
+    #[test]
+    fn verify_json_gives_the_result_and_each_signer() {
+        let dir = packed();
+        let d = dir.path();
+        let alice = clear_key(d, "alice");
+        clear_key(d, "bob");
+        let json = |extra: &[&str]| {
+            let (code, out, err) = verify(d, &[extra, &["--json"]].concat());
+            assert_eq!(err, "");
+            (code, serde_json::from_str::<Value>(&out).unwrap())
+        };
+        let (code, v) = json(&[]);
+        assert_eq!(code, Some(4));
+        let shown = show_json(d, "hello.ordin");
+        assert_eq!(
+            v,
+            serde_json::json!({
+                "facets": [
+                    {"chunks": 1, "facet": "doc", "files": 1, "size": 12},
+                    {"chunks": 1, "facet": "runtime", "files": 1, "size": 21},
+                ],
+                "file": "hello.ordin",
+                "image": shown["image"],
+                "licenses": 1,
+                "package": shown["package"],
+                "result": "unsigned",
+                "signatures": [],
+            })
+        );
+        ordin(d, &["sign", "hello.ordin", "--key", "alice"]);
+        let (code, v) = json(&["--trust", "bob.pub"]);
+        assert_eq!(code, Some(5));
+        assert_eq!(v["result"], "untrusted");
+        assert_eq!(
+            v["signatures"],
+            serde_json::json!([{"key": alice, "trusted": false}])
+        );
+        let (code, v) = json(&["--trust", "alice.pub"]);
+        assert_eq!(code, Some(0));
+        assert_eq!(v["result"], "trusted");
+        assert_eq!(
+            v["signatures"],
+            serde_json::json!([{"key": alice, "trusted": true}])
+        );
+    }
+
+    #[test]
+    fn a_corrupt_package_fails_verify_and_names_the_part() {
+        let dir = packed();
+        let d = dir.path();
+        clear_key(d, "alice");
+        ordin(d, &["sign", "hello.ordin", "--key", "alice"]);
+        let good = fs::read(d.join("hello.ordin")).unwrap();
+        // One changed byte; the library's tests change every byte in turn.
+        let mut bad = good.clone();
+        let at = good.len() / 2;
+        bad[at] ^= 1;
+        fs::write(d.join("hello.ordin"), &bad).unwrap();
+        let (code, out, err) = verify(d, &["--trust", "alice.pub"]);
+        assert_eq!(code, Some(3));
+        assert_eq!(out, "");
+        assert!(
+            err.starts_with("ordin: error: hello.ordin is corrupt: "),
+            "{err}"
+        );
+        assert_eq!(err.lines().count(), 1, "{err}");
+        let (code, out, err) = verify(d, &["--json"]);
+        assert_eq!(code, Some(3));
+        assert_eq!(err, "");
+        let v: Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(v["result"], "corrupt");
+        assert_eq!(
+            format!("ordin: error: {}\n", v["error"].as_str().unwrap()),
+            stderr(&ordin(d, &["verify", "hello.ordin"]))
+        );
+        // Cut short: corrupt too, not a read error.
+        fs::write(d.join("hello.ordin"), &good[..good.len() - 1]).unwrap();
+        let (code, _, err) = verify(d, &[]);
+        assert_eq!(code, Some(3));
+        assert_eq!(
+            err,
+            "ordin: error: hello.ordin is corrupt: the archive: the file ends inside it\n"
+        );
+    }
+
+    #[test]
+    fn verify_fails_when_it_cant_check() {
+        let dir = packed();
+        let d = dir.path();
+        clear_key(d, "alice");
+        let o = ordin(d, &["verify", "missing.ordin"]);
+        assert_eq!(o.status.code(), Some(1));
+        assert_eq!(
+            stderr(&o),
+            "ordin: error: missing.ordin: No such file or directory (os error 2)\n"
+        );
+        let o = ordin(d, &["verify", "root"]);
+        assert_eq!(o.status.code(), Some(1));
+        assert_eq!(stderr(&o), "ordin: error: root: not a regular file\n");
+        // A --trust file must be a public key file: not the secret key,
+        // and not missing.
+        let (code, _, err) = verify(d, &["--trust", "alice"]);
+        assert_eq!(code, Some(1));
+        assert!(
+            err.starts_with("ordin: error: alice: a public key file: "),
+            "{err}"
+        );
+        let (code, out, _) = verify(d, &["--trust", "nobody.pub", "--json"]);
+        assert_eq!(code, Some(1));
+        assert_eq!(
+            out,
+            r#"{"error":"nobody.pub: No such file or directory (os error 2)"}"#
+        );
+    }
 }
