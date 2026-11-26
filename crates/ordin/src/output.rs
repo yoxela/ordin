@@ -24,6 +24,7 @@ use ordin_core::json::{self, MAX_INT, Value};
 use crate::keys::Generated;
 use crate::pack::Report;
 use crate::sign::Signed;
+use crate::unpack::Unpacked;
 use crate::verify::{Report as Verification, Verdict};
 
 fn text(s: impl ToString) -> Value {
@@ -171,11 +172,52 @@ pub fn key_warnings(made: &Generated) -> Vec<String> {
 
 /// `n` and `thing`, plural unless `n` is 1.
 fn count(n: usize, thing: &str) -> String {
+    plural(n, thing, &format!("{thing}s"))
+}
+
+/// `n` and `one` if `n` is 1, `many` otherwise.
+fn plural(n: usize, one: &str, many: &str) -> String {
     if n == 1 {
-        format!("1 {thing}")
+        format!("1 {one}")
     } else {
-        format!("{n} {thing}s")
+        format!("{n} {many}")
     }
+}
+
+/// `ordin unpack`'s result for people.
+pub fn unpack_text(u: &Unpacked) -> String {
+    let facets: Vec<String> = u.facets.iter().map(ToString::to_string).collect();
+    format!(
+        "unpacked {} into {}\npackage {}\nfacets: {}\n{}, {} ({}), {}, {}\n\
+         not applied, recorded in {}: owners, setuid, setgid and sticky bits, \
+         extended attributes and capabilities\n",
+        u.file.display(),
+        u.to.display(),
+        u.package,
+        facets.join(", "),
+        plural(u.dirs, "directory", "directories"),
+        count(u.files, "file"),
+        show::size(u.size),
+        count(u.symlinks, "symlink"),
+        count(u.hard_links, "hard link"),
+        u.meta.display()
+    )
+}
+
+/// `ordin unpack`'s result as JSON.
+pub fn unpack_json(u: &Unpacked) -> String {
+    json::canonical(&object([
+        ("dirs", int(u.dirs as u64)),
+        ("facets", Value::Array(u.facets.iter().map(text).collect())),
+        ("file", text(u.file.display())),
+        ("files", int(u.files as u64)),
+        ("hard_links", int(u.hard_links as u64)),
+        ("meta", text(u.meta.display())),
+        ("package", text(u.package)),
+        ("size", int(u.size)),
+        ("symlinks", int(u.symlinks as u64)),
+        ("to", text(u.to.display())),
+    ]))
 }
 
 /// `ordin verify`'s result for people, for an intact package.
@@ -341,5 +383,7 @@ mod tests {
         assert_eq!(count(0, "file"), "0 files");
         assert_eq!(count(1, "file"), "1 file");
         assert_eq!(count(2, "chunk"), "2 chunks");
+        assert_eq!(plural(1, "directory", "directories"), "1 directory");
+        assert_eq!(plural(3, "directory", "directories"), "3 directories");
     }
 }

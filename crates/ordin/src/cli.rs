@@ -6,7 +6,7 @@
 use std::path::PathBuf;
 
 use clap::{Args, Parser, Subcommand};
-use ordin_core::{Arch, PackageName};
+use ordin_core::{Arch, Facet, PackageName};
 use ordin_pack::OwnerOverride;
 use ordin_tree::TreePath;
 
@@ -30,6 +30,8 @@ pub enum Command {
     Sign(SignArgs),
     /// Check that a package is intact and signed by a key you trust.
     Verify(VerifyArgs),
+    /// Write a package's files to a new directory, without root.
+    Unpack(UnpackArgs),
     /// Manage signing keys.
     #[command(subcommand)]
     Key(KeyCommand),
@@ -76,6 +78,24 @@ pub struct SignArgs {
     /// The file to write; the package itself if not given.
     #[arg(long, short)]
     pub out: Option<PathBuf>,
+    /// Print the result as JSON.
+    #[arg(long)]
+    pub json: bool,
+}
+
+/// `ordin unpack`.
+#[derive(Debug, Args)]
+pub struct UnpackArgs {
+    /// The package file.
+    pub file: PathBuf,
+    /// The directory to write, which must not exist yet. Owners, special
+    /// mode bits, attributes and capabilities go in DIR.ordin-meta.json.
+    #[arg(long, value_name = "DIR")]
+    pub to: PathBuf,
+    /// Unpack only this facet. Give it once for each; without it, every
+    /// facet is unpacked.
+    #[arg(long, value_name = "NAME")]
+    pub facet: Vec<Facet>,
     /// Print the result as JSON.
     #[arg(long)]
     pub json: bool,

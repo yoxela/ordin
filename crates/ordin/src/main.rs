@@ -16,6 +16,7 @@ mod pack;
 mod passphrase;
 mod show;
 mod sign;
+mod unpack;
 mod verify;
 
 use std::process::ExitCode;
@@ -76,6 +77,17 @@ fn main() -> ExitCode {
                     output::print_error(&e);
                 }
                 ExitCode::from(verify::CORRUPT)
+            }
+            Err(e) => fail(&e, args.json),
+        },
+        Command::Unpack(args) => match unpack::run(&args) {
+            Ok(unpacked) if args.json => {
+                output::print(&output::unpack_json(&unpacked), &[]);
+                ExitCode::SUCCESS
+            }
+            Ok(unpacked) => {
+                output::print(&output::unpack_text(&unpacked), &[]);
+                ExitCode::SUCCESS
             }
             Err(e) => fail(&e, args.json),
         },

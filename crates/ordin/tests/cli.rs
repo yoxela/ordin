@@ -1281,4 +1281,253 @@ mod cli {
             r#"{"error":"nobody.pub: No such file or directory (os error 2)"}"#
         );
     }
+
+    // ordin unpack (ORD-134).
+
+    /// A package with a setuid program, a hard link, a symlink and a
+    /// read-only directory, packed in `dir` as hello.ordin.
+    fn rich() -> TempDir {
+        let dir = fixture();
+        let root = dir.path().join("root");
+        fs::set_permissions(root.join("usr/bin/hello"), Permissions::from_mode(0o4755)).unwrap();
+        fs::hard_link(root.join("usr/bin/hello"), root.join("usr/bin/hello2")).unwrap();
+        std::os::unix::fs::symlink("hello", root.join("usr/bin/hi")).unwrap();
+        write(&root, "usr/lib/ro/data", b"data\n", 0o644);
+        fs::set_permissions(root.join("usr/lib/ro"), Permissions::from_mode(0o555)).unwrap();
+        let o = ordin(
+            dir.path(),
+            &[
+                "pack",
+                "root",
+                "--name",
+                "hello",
+                "--version",
+                "2.12",
+                "--license",
+                "NONE",
+                "--summary",
+                "s",
+                "-o",
+                "hello.ordin",
+            ],
+        );
+        assert_eq!(o.status.code(), Some(0), "{}", stderr(&o));
+        fs::set_permissions(root.join("usr/lib/ro"), Permissions::from_mode(0o755)).unwrap();
+        dir
+    }
+
+    /// Lets a test directory holding read-only directories be removed.
+    fn writable(path: &Path) {
+        for entry in fs::read_dir(path).unwrap() {
+            let entry = entry.unwrap();
+            if entry.file_type().unwrap().is_dir() {
+                fs::set_permissions(entry.path(), Permissions::from_mode(0o755)).unwrap();
+                writable(&entry.path());
+            }
+        }
+    }
+
+    #[test]
+    fn unpack_writes_every_file_with_its_permission_bits() {
+        let dir = rich();
+        let d = dir.path();
+        let o = ordin(d, &["unpack", "hello.ordin", "--to", "out"]);
+        assert_eq!(o.status.code(), Some(0), "{}", stderr(&o));
+        assert_eq!(stderr(&o), "");
+        let shown = show_json(d, "hello.ordin");
+        assert_eq!(
+            stdout(&o),
+            format!(
+                "unpacked hello.ordin into out\npackage {}\nfacets: doc, runtime\n\
+                 7 directories, 3 files (38 B), 1 symlink, 1 hard link\n\
+                 not applied, recorded in out.ordin-meta.json: owners, setuid, setgid and \
+                 sticky bits, extended attributes and capabilities\n",
+                shown["package"].as_str().unwrap()
+            )
+        );
+        let out = d.join("out");
+        for path in [
+            "usr/bin/hello",
+            "usr/share/doc/hello/README",
+            "usr/lib/ro/data",
+        ] {
+            assert_eq!(
+                fs::read(out.join(path)).unwrap(),
+                fs::read(d.join("root").join(path)).unwrap(),
+                "{path}"
+            );
+        }
+        // Only permission bits: the setuid bit is left out.
+        assert_eq!(mode(&out.join("usr/bin/hello")), 0o755);
+        assert_eq!(mode(&out.join("usr/share/doc/hello/README")), 0o644);
+        assert_eq!(mode(&out.join("usr/lib/ro")), 0o555);
+        assert_eq!(mode(&out), 0o700);
+        use std::os::unix::fs::MetadataExt;
+        assert_eq!(
+            fs::metadata(out.join("usr/bin/hello2")).unwrap().ino(),
+            fs::metadata(out.join("usr/bin/hello")).unwrap().ino()
+        );
+        assert_eq!(
+            fs::read_link(out.join("usr/bin/hi")).unwrap(),
+            Path::new("hello")
+        );
+        // The sidecar has each facet's tree exactly, setuid bit and all.
+        let o = ordin(d, &["show", "hello.ordin", "--facets", "--json"]);
+        let shown: Value = serde_json::from_str(&stdout(&o)).unwrap();
+        let meta: Value =
+            serde_json::from_slice(&fs::read(d.join("out.ordin-meta.json")).unwrap()).unwrap();
+        assert_eq!(meta["ordin-unpack"], 1);
+        assert_eq!(meta["package"], shown["package"]);
+        for facet in ["doc", "runtime"] {
+            assert_eq!(meta["facets"][facet]["ordin-tree"], 1);
+            assert_eq!(meta["facets"][facet]["entries"], shown["files"][facet]);
+        }
+        assert!(
+            meta["facets"]["runtime"]["entries"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|e| e["path"] == "/usr/bin/hello" && e["mode"] == "4755"),
+            "{meta}"
+        );
+        assert_eq!(mode(&d.join("out.ordin-meta.json")), 0o644);
+        writable(&out);
+    }
+
+    #[test]
+    fn unpack_can_take_only_some_facets() {
+        let dir = rich();
+        let d = dir.path();
+        let o = ordin(
+            d,
+            &[
+                "unpack",
+                "hello.ordin",
+                "--to",
+                "docs",
+                "--facet",
+                "doc",
+                "--json",
+            ],
+        );
+        assert_eq!(o.status.code(), Some(0), "{}", stderr(&o));
+        let v: Value = serde_json::from_str(&stdout(&o)).unwrap();
+        let shown = show_json(d, "hello.ordin");
+        assert_eq!(
+            v,
+            serde_json::json!({
+                "dirs": 4,
+                "facets": ["doc"],
+                "file": "hello.ordin",
+                "files": 1,
+                "hard_links": 0,
+                "meta": "docs.ordin-meta.json",
+                "package": shown["package"],
+                "size": 12,
+                "symlinks": 0,
+                "to": "docs",
+            })
+        );
+        assert!(d.join("docs/usr/share/doc/hello/README").is_file());
+        assert!(!d.join("docs/usr/bin").exists());
+        let meta: Value =
+            serde_json::from_slice(&fs::read(d.join("docs.ordin-meta.json")).unwrap()).unwrap();
+        let facets: Vec<&String> = meta["facets"].as_object().unwrap().keys().collect();
+        assert_eq!(facets, ["doc"]);
+    }
+
+    #[test]
+    fn unpack_never_replaces_anything() {
+        let dir = rich();
+        let d = dir.path();
+        let unpack = |to: &str, extra: &[&str]| {
+            let mut args = vec!["unpack", "hello.ordin", "--to", to];
+            args.extend(extra);
+            let o = ordin(d, &args);
+            (o.status.code(), stderr(&o))
+        };
+        fs::create_dir(d.join("there")).unwrap();
+        fs::write(d.join("file"), b"mine").unwrap();
+        fs::write(d.join("taken.ordin-meta.json"), b"mine").unwrap();
+        for (to, said) in [
+            (
+                "there",
+                "there: already exists; ordin unpack never replaces anything",
+            ),
+            (
+                "file",
+                "file: already exists; ordin unpack never replaces anything",
+            ),
+            (
+                "taken",
+                "taken.ordin-meta.json: already exists; ordin unpack never replaces anything",
+            ),
+            (
+                ".",
+                ".: --to must name a new directory, by a name that isn't '.' or '..'",
+            ),
+        ] {
+            assert_eq!(
+                unpack(to, &[]),
+                (Some(1), format!("ordin: error: {said}\n")),
+                "{to}"
+            );
+        }
+        assert_eq!(fs::read(d.join("file")).unwrap(), b"mine");
+        assert_eq!(fs::read(d.join("taken.ordin-meta.json")).unwrap(), b"mine");
+        assert!(!d.join("taken").exists());
+        assert_eq!(
+            unpack("new", &["--facet", "man"]),
+            (
+                Some(1),
+                "ordin: error: hello.ordin: the package has no facet man; it has doc, runtime\n"
+                    .to_owned()
+            )
+        );
+        assert!(!d.join("new").exists());
+        let o = ordin(d, &["unpack", "missing.ordin", "--to", "new"]);
+        assert_eq!(o.status.code(), Some(1));
+        assert_eq!(
+            stderr(&o),
+            "ordin: error: missing.ordin: No such file or directory (os error 2)\n"
+        );
+        assert!(!d.join("new").exists());
+    }
+
+    /// The names in `dir`, sorted.
+    fn names(dir: &Path) -> Vec<String> {
+        let mut names: Vec<String> = fs::read_dir(dir)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        names.sort();
+        names
+    }
+
+    #[test]
+    fn a_failed_unpack_leaves_nothing_behind() {
+        let dir = rich();
+        let d = dir.path();
+        // The README's one chunk is stored as it is: change a byte of it,
+        // so the package opens and unpacking fails after other files
+        // were written.
+        let mut bytes = fs::read(d.join("hello.ordin")).unwrap();
+        let readme = b"Says hello.\n";
+        let at = bytes
+            .windows(readme.len())
+            .position(|w| w == readme)
+            .expect("the fixture stores the README's chunk as it is");
+        bytes[at] ^= 1;
+        fs::write(d.join("hello.ordin"), &bytes).unwrap();
+        let before = names(d);
+        let o = ordin(d, &["unpack", "hello.ordin", "--to", "out"]);
+        assert_eq!(o.status.code(), Some(1));
+        let err = stderr(&o);
+        assert!(
+            err.starts_with("ordin: error: out/usr/share/doc/hello/README: chunk blake3:")
+                && err.contains(" in the chunk pack for facet doc: "),
+            "{err}"
+        );
+        assert_eq!(names(d), before);
+    }
 }

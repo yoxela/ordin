@@ -102,6 +102,21 @@ Checks that a package is intact, every byte of it, and that a key you trust sign
 - **It prints** that the file is intact, the package and image digests, each facet's files, chunks and size, and each signature's key, trusted or not. When the package isn't trusted, standard error says why. With `--json`: `facets` (each with `chunks`, `facet`, `files` and `size`), `file`, `image`, `licenses`, `package`, `result` (`trusted`, `unsigned` or `untrusted`) and `signatures` (each with `key` and `trusted`, sorted by key). A corrupt package prints `{"error": "...", "result": "corrupt"}`.
 - **Exit codes**, worst first: 3 if the package is corrupt, 4 if it is intact but not signed, 5 if it is signed only by keys not given with `--trust`, and 0 if a trusted key signed it. 1 means it couldn't be checked: the file can't be read, or a `--trust` file isn't a public key file.
 
+## `ordin unpack`
+
+```
+ordin unpack FILE --to DIR [--facet NAME]... [--json]
+```
+
+Writes a package's files to a new directory, without root, to see exactly what is inside. Every facet is unpacked into one tree, as a host would see it; `--facet` unpacks only the facets named. A directory can be in several facets if it is the same in each; any other path two facets both have is refused.
+
+- **Nothing is replaced, and a failure leaves nothing.** `DIR` and its sidecar must not exist. Everything is written into a new private directory beside `DIR` and renamed into place only when all of it is there.
+- **Nothing lands outside.** Each directory is opened a name at a time without following symlinks, and each file is created new, so no symlink or name in the package can make a write leave `DIR`.
+- **Every file is checked** as it is written: each chunk against its digest, then the whole file against its tree. Signatures aren't checked; `ordin verify` does that.
+- **Only permission bits are applied.** Owners, the setuid, setgid and sticky bits, extended attributes and capabilities need root, or would make the copy grant what the package grants, so they are left out. `DIR` itself is private (0700).
+- **The sidecar,** `DIR.ordin-meta.json` beside `DIR`, records them all: each unpacked facet's tree exactly, in `ordin-tree`'s format, as canonical JSON: `{"facets": {NAME: TREE, ...}, "ordin-unpack": 1, "package": "blake3:..."}`. `ordin-unpack` is the sidecar's format version.
+- **It prints** what it wrote: the facets, and how many directories, files (with their size), symlinks and hard links. With `--json`: `dirs`, `facets`, `file`, `files`, `hard_links`, `meta` (the sidecar), `package`, `size`, `symlinks` and `to`.
+
 ## Exit codes
 
 | Code | Meaning |
