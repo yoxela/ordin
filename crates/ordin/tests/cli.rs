@@ -14,8 +14,79 @@ mod cli {
     use serde_json::Value;
     use tempfile::TempDir;
 
-    fn temp() -> TempDir {
-        tempfile::tempdir_in(env!("CARGO_TARGET_TMPDIR")).unwrap()
+    /// A test directory that can always be removed, even after a test
+    /// fails half-way: when it is dropped, every directory under it is
+    /// first made its owner's to read, write and search again, so a
+    /// read-only directory a failed test left can't stop `TempDir`
+    /// removing it. Left behind, it would also stop cargo-mutants removing
+    /// its scratch copy of the workspace, which holds `target/tmp`.
+    struct Scratch(TempDir);
+
+    impl Scratch {
+        fn path(&self) -> &Path {
+            self.0.path()
+        }
+    }
+
+    impl Drop for Scratch {
+        fn drop(&mut self) {
+            open_up(self.0.path());
+        }
+    }
+
+    /// Gives the owner `rwx` on `dir` and every directory under it. It
+    /// doesn't follow symlinks, and it ignores every error, so it can't
+    /// panic while a failed test is already panicking.
+    fn open_up(dir: &Path) {
+        let Ok(meta) = fs::symlink_metadata(dir) else {
+            return;
+        };
+        if !meta.is_dir() {
+            return;
+        }
+        let mode = meta.permissions().mode();
+        if mode & 0o700 != 0o700 {
+            let _ = fs::set_permissions(dir, Permissions::from_mode(mode | 0o700));
+        }
+        let Ok(entries) = fs::read_dir(dir) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            if entry.file_type().is_ok_and(|t| t.is_dir()) {
+                open_up(&entry.path());
+            }
+        }
+    }
+
+    fn temp() -> Scratch {
+        Scratch(tempfile::tempdir_in(env!("CARGO_TARGET_TMPDIR")).unwrap())
+    }
+
+    #[test]
+    fn a_test_directory_is_removed_even_after_a_failed_test() {
+        // A directory outside it, reached through a symlink inside it.
+        let outside = temp();
+        let kept = outside.path().join("kept");
+        fs::create_dir(&kept).unwrap();
+        fs::set_permissions(&kept, Permissions::from_mode(0o500)).unwrap();
+        let mut at = None;
+        let failed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let dir = temp();
+            at = Some(dir.path().to_owned());
+            let a = dir.path().join("a");
+            fs::create_dir_all(a.join("b/c")).unwrap();
+            fs::write(a.join("b/c/f"), b"x").unwrap();
+            std::os::unix::fs::symlink(&kept, a.join("b/out")).unwrap();
+            // Deepest first, so each can still be reached.
+            for (path, mode) in [("a/b/c", 0o000), ("a/b", 0o500), ("a", 0o555)] {
+                fs::set_permissions(dir.path().join(path), Permissions::from_mode(mode)).unwrap();
+            }
+            panic!("a test that fails on purpose, leaving read-only directories");
+        }));
+        assert!(failed.is_err());
+        assert!(!at.unwrap().exists());
+        // The symlink wasn't followed.
+        assert_eq!(mode(&kept), 0o500);
     }
 
     fn write(root: &Path, path: &str, bytes: &[u8], mode: u32) {
@@ -26,7 +97,7 @@ mod cli {
     }
 
     /// A directory holding `root/`, an install root, and `COPYING`.
-    fn fixture() -> TempDir {
+    fn fixture() -> Scratch {
         let dir = temp();
         let root = dir.path().join("root");
         write(&root, "usr/bin/hello", b"#!/bin/sh\necho hello\n", 0o755);
@@ -480,7 +551,7 @@ mod cli {
     }
 
     /// The fixture packed with a license, as `hello.ordin`.
-    fn packed() -> TempDir {
+    fn packed() -> Scratch {
         let dir = fixture();
         let o = ordin(
             dir.path(),
@@ -1289,7 +1360,7 @@ mod cli {
 
     /// A package with a setuid program, a hard link, a symlink and a
     /// read-only directory, packed in `dir` as hello.ordin.
-    fn rich() -> TempDir {
+    fn rich() -> Scratch {
         let dir = fixture();
         let root = dir.path().join("root");
         fs::set_permissions(root.join("usr/bin/hello"), Permissions::from_mode(0o4755)).unwrap();
@@ -1317,17 +1388,6 @@ mod cli {
         assert_eq!(o.status.code(), Some(0), "{}", stderr(&o));
         fs::set_permissions(root.join("usr/lib/ro"), Permissions::from_mode(0o755)).unwrap();
         dir
-    }
-
-    /// Lets a test directory holding read-only directories be removed.
-    fn writable(path: &Path) {
-        for entry in fs::read_dir(path).unwrap() {
-            let entry = entry.unwrap();
-            if entry.file_type().unwrap().is_dir() {
-                fs::set_permissions(entry.path(), Permissions::from_mode(0o755)).unwrap();
-                writable(&entry.path());
-            }
-        }
     }
 
     #[test]
@@ -1394,7 +1454,6 @@ mod cli {
             "{meta}"
         );
         assert_eq!(mode(&d.join("out.ordin-meta.json")), 0o644);
-        writable(&out);
     }
 
     #[test]
