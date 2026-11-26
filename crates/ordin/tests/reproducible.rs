@@ -6,8 +6,8 @@
 //! Each sample is packed twice, by the `ordin` binary, under everything
 //! that mustn't matter made different: the directory and the working
 //! directory, the order its entries were made in (which changes the order
-//! a directory lists them on tmpfs, where the second copy goes when
-//! `/dev/shm` is one), the files' timestamps, how many
+//! a directory lists them on tmpfs, where both copies go when `/dev/shm`
+//! is one), the files' timestamps, how many
 //! threads compress, and the time zone and locale. Both packages must have
 //! the same identity and be the same bytes.
 //!
@@ -298,11 +298,11 @@ mod reproducible {
     /// `statfs`'s type for tmpfs.
     const TMPFS: u64 = 0x0102_1994;
 
-    /// Where the second copy goes: on tmpfs if `/dev/shm` is a directory
-    /// that can be written to, where the order entries were made in is
-    /// the order a directory lists them, and in the target directory
-    /// otherwise.
-    fn second_place() -> TempDir {
+    /// Where the copies go: on tmpfs if `/dev/shm` is a directory that can
+    /// be written to, where a directory lists its entries newest first,
+    /// and in the target directory otherwise. Elsewhere the order can be a
+    /// hash of the names, the same for both copies or not.
+    fn place() -> TempDir {
         TempDir::new_in("/dev/shm")
             .or_else(|_| TempDir::new_in(env!("CARGO_TARGET_TMPDIR")))
             .unwrap()
@@ -318,10 +318,10 @@ mod reproducible {
 
     #[test]
     fn packing_twice_differently_gives_the_same_package() {
-        let temp = TempDir::new_in(env!("CARGO_TARGET_TMPDIR")).unwrap();
+        let temp = place();
         let t = temp.path();
-        let elsewhere = second_place();
-        let on_tmpfs = rustix::fs::statfs(elsewhere.path()).unwrap().f_type as u64 == TMPFS;
+        let elsewhere = place();
+        let on_tmpfs = rustix::fs::statfs(t).unwrap().f_type as u64 == TMPFS;
         let early = SystemTime::UNIX_EPOCH + Duration::from_secs(978_307_200);
         let late = SystemTime::UNIX_EPOCH + Duration::from_secs(2_000_000_000);
         for sample in samples() {
@@ -338,12 +338,11 @@ mod reproducible {
             build(&sample, &b.join("root"), true, late);
             fs::write(b.join("COPYING"), b"MIT License\n").unwrap();
             if on_tmpfs && name == "tool" {
-                // The order really differs, so the walk's sorting is what
-                // keeps the packages the same.
-                assert_ne!(
-                    listed(&a.join("root/usr/bin")),
-                    listed(&b.join("root/usr/bin"))
-                );
+                // Newest first, and the hard link is made last: the order
+                // really differs, so the walk's sorting is what keeps the
+                // packages the same.
+                assert_eq!(listed(&a.join("root/usr/bin")), ["tool2", "tool", "t"]);
+                assert_eq!(listed(&b.join("root/usr/bin")), ["tool2", "t", "tool"]);
             }
             let first = pack(
                 &sample,
