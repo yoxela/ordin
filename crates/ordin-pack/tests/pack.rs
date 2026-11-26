@@ -498,8 +498,10 @@ mod packing {
         fs::create_dir(&ro).unwrap();
         fs::set_permissions(&ro, Permissions::from_mode(0o555)).unwrap();
         let out = ro.join("x.ordin");
-        let e = pk(&options(&dir.path().join("root")), &out).unwrap_err();
+        let packed = pk(&options(&dir.path().join("root")), &out);
+        // Writable again before anything can fail, so it can be removed.
         fs::set_permissions(&ro, Permissions::from_mode(0o755)).unwrap();
+        let e = packed.unwrap_err();
         assert_eq!(
             chain(&e),
             format!("{}: Permission denied (os error 13)", out.display())

@@ -408,6 +408,70 @@ mod tests {
 
     use super::*;
 
+    /// A test directory that can always be removed, even after a test
+    /// fails half-way: when it is dropped, every directory under it is
+    /// first made its owner's to read, write and search again, so a
+    /// directory `place` left read-only can't stop `TempDir` removing it.
+    struct Scratch(tempfile::TempDir);
+
+    impl Scratch {
+        fn path(&self) -> &std::path::Path {
+            self.0.path()
+        }
+    }
+
+    impl Drop for Scratch {
+        fn drop(&mut self) {
+            open_up(self.0.path());
+        }
+    }
+
+    /// Gives the owner `rwx` on `dir` and every directory under it. It
+    /// doesn't follow symlinks, and it ignores every error, so it can't
+    /// panic while a failed test is already panicking.
+    fn open_up(dir: &std::path::Path) {
+        use std::os::unix::fs::PermissionsExt;
+        let Ok(meta) = std::fs::symlink_metadata(dir) else {
+            return;
+        };
+        if !meta.is_dir() {
+            return;
+        }
+        let mode = meta.permissions().mode();
+        if mode & 0o700 != 0o700 {
+            let _ = std::fs::set_permissions(dir, std::fs::Permissions::from_mode(mode | 0o700));
+        }
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            if entry.file_type().is_ok_and(|t| t.is_dir()) {
+                open_up(&entry.path());
+            }
+        }
+    }
+
+    fn scratch() -> Scratch {
+        Scratch(tempfile::tempdir().unwrap())
+    }
+
+    #[test]
+    fn a_test_directory_is_removed_even_after_a_failed_test() {
+        let mut at = None;
+        let failed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let parent = scratch();
+            at = Some(parent.path().to_owned());
+            std::fs::create_dir_all(parent.path().join("a/b")).unwrap();
+            std::fs::write(parent.path().join("a/b/f"), b"x").unwrap();
+            for (path, mode) in [("a/b", 0o000), ("a", 0o555)] {
+                sys::chmod(parent.path().join(path), Mode::from_raw_mode(mode)).unwrap();
+            }
+            panic!("a test that fails on purpose, leaving read-only directories");
+        }));
+        assert!(failed.is_err());
+        assert!(!at.unwrap().exists());
+    }
+
     fn facet(name: &str) -> Facet {
         name.parse().unwrap()
     }
@@ -575,7 +639,7 @@ mod tests {
 
     #[test]
     fn a_failed_rename_leaves_nothing_whatever_the_modes() {
-        let parent = tempfile::tempdir().unwrap();
+        let parent = scratch();
         let temp = tempfile::tempdir_in(parent.path()).unwrap();
         let gone = temp.path().to_path_buf();
         std::fs::create_dir_all(gone.join("a/b")).unwrap();
@@ -594,7 +658,7 @@ mod tests {
 
     #[test]
     fn a_failed_rename_removes_the_sidecar_too() {
-        let parent = tempfile::tempdir().unwrap();
+        let parent = scratch();
         let temp = tempfile::tempdir_in(parent.path()).unwrap();
         let gone = temp.path().to_path_buf();
         let to = parent.path().join("to");
@@ -615,7 +679,7 @@ mod tests {
 
     #[test]
     fn placing_closes_the_directories_and_renames() {
-        let parent = tempfile::tempdir().unwrap();
+        let parent = scratch();
         let temp = tempfile::tempdir_in(parent.path()).unwrap();
         let old = temp.path().to_path_buf();
         std::fs::create_dir_all(old.join("a/b")).unwrap();
@@ -637,7 +701,5 @@ mod tests {
         };
         assert_eq!(mode("a"), 0o555);
         assert_eq!(mode("a/b"), 0o750);
-        // So the test directory can be removed.
-        sys::chmod(to.join("a"), Mode::from_raw_mode(0o755)).unwrap();
     }
 }
