@@ -105,3 +105,9 @@ Missing directories above a moved path are added as `root:root 0755`, and hard l
 - The file goes to a temporary file beside `out`, which is synced, made mode 0644 and renamed over `out`. Then the directory is synced, so `out` is always either the old file or the complete new one.
 - A failed write leaves `out` as it was, and no temporary file behind.
 - An output inside the install root is refused, through symlinks too, so an old package can never be packed into the next one.
+
+## Versions from git
+
+`git::version(dir)` makes a snapshot's upstream version from the git checkout at `dir`, and returns the full commit for the manifest's provenance. It reads the nearest version tag, the commits since it and HEAD's committer date in UTC, and builds the version with `ordin-version`'s `snapshot`: `1.4.2^20261112.37.g3fa9c1e`, `0^…` without a tag, or the tag's own version at the tagged commit. A checkout whose tracked files differ from HEAD, or a shallow clone, is refused.
+
+It runs the `git` program with read-only commands only (`rev-parse`, `diff --quiet`, `describe`, `rev-list --count`, `cat-file`), with `core.fsmonitor` off, `--no-replace-objects`, no pager, no prompt, no optional locks and the C locale, and parses every output strictly.

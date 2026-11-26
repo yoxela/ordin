@@ -37,6 +37,13 @@ pub enum Command {
     Key(KeyCommand),
 }
 
+/// Where `--version-from` makes the version from.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, clap::ValueEnum)]
+pub enum VersionFrom {
+    /// The git checkout at the working directory.
+    Git,
+}
+
 /// `ordin key`.
 #[derive(Debug, Subcommand)]
 pub enum KeyCommand {
@@ -137,8 +144,18 @@ pub struct PackArgs {
     #[arg(long)]
     pub name: PackageName,
     /// The upstream version, with an optional epoch: `2.12`, `1:2.0`.
-    #[arg(long = "version", value_name = "VERSION")]
-    pub version: String,
+    #[arg(
+        long = "version",
+        value_name = "VERSION",
+        required_unless_present = "version_from",
+        conflicts_with = "version_from"
+    )]
+    pub version: Option<String>,
+    /// Make the version from somewhere else: `git` makes a snapshot
+    /// version from the working directory's checkout, such as
+    /// `1.4.2^20261112.37.g3fa9c1e`, and records its commit.
+    #[arg(long, value_name = "SOURCE")]
+    pub version_from: Option<VersionFrom>,
     /// The release number.
     #[arg(long, default_value = "1")]
     pub release: String,

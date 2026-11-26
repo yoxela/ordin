@@ -130,11 +130,14 @@ mod cli {
                 .unwrap()
                 .starts_with("blake3:")
         );
+        // Without --version-from git, no commit is known.
+        assert_eq!(v["commit"], Value::Null);
         let keys: Vec<&String> = v.as_object().unwrap().keys().collect();
         assert_eq!(
             keys,
             [
                 "arch",
+                "commit",
                 "facets",
                 "file",
                 "image",
@@ -1529,5 +1532,171 @@ mod cli {
             "{err}"
         );
         assert_eq!(names(d), before);
+    }
+
+    // ordin pack --version-from git (ORD-122).
+
+    /// Runs git in `dir` as nobody in particular, at a fixed date.
+    fn git(dir: &Path, args: &[&str]) -> String {
+        let o = Command::new("git")
+            .current_dir(dir)
+            .args([
+                "-c",
+                "user.name=Test",
+                "-c",
+                "user.email=test@example.invalid",
+                "-c",
+                "commit.gpgsign=false",
+                "-c",
+                "tag.gpgsign=false",
+            ])
+            .args(args)
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .env("GIT_AUTHOR_DATE", "2026-11-14T12:00:00+00:00")
+            .env("GIT_COMMITTER_DATE", "2026-11-14T12:00:00+00:00")
+            .output()
+            .unwrap();
+        assert!(o.status.success(), "git {args:?}: {}", stderr(&o));
+        String::from_utf8(o.stdout).unwrap().trim().to_owned()
+    }
+
+    /// A checkout outside any other repository: a tag, two commits after
+    /// it, and an untracked install root.
+    fn checkout() -> (TempDir, String) {
+        let dir = tempfile::tempdir().unwrap();
+        let d = dir.path();
+        git(d, &["init", "-q"]);
+        fs::write(d.join("src"), b"one\n").unwrap();
+        git(d, &["add", "src"]);
+        git(d, &["commit", "-q", "-m", "one"]);
+        git(d, &["tag", "v1.4.2"]);
+        for n in ["two\n", "three\n"] {
+            fs::write(d.join("src"), n).unwrap();
+            git(d, &["commit", "-q", "-am", "more"]);
+        }
+        write(
+            &d.join("root"),
+            "usr/bin/hello",
+            b"#!/bin/sh\necho hello\n",
+            0o755,
+        );
+        let head = git(d, &["rev-parse", "HEAD"]);
+        (dir, head)
+    }
+
+    /// `ordin` in `dir`, with git kept from looking above it.
+    fn ordin_in(dir: &Path, args: &[&str], env: &[(&str, &str)]) -> Output {
+        let mut c = Command::new(env!("CARGO_BIN_EXE_ordin"));
+        c.current_dir(dir)
+            .args(args)
+            .env("GIT_CEILING_DIRECTORIES", dir.parent().unwrap());
+        for (k, v) in env {
+            c.env(k, v);
+        }
+        c.output().unwrap()
+    }
+
+    const FROM_GIT: [&str; 8] = [
+        "pack",
+        "root",
+        "--name",
+        "hello",
+        "--version-from",
+        "git",
+        "--license",
+        "NONE",
+    ];
+
+    #[test]
+    fn a_snapshot_is_versioned_from_its_checkout() {
+        let (dir, head) = checkout();
+        let d = dir.path();
+        let mut args = FROM_GIT.to_vec();
+        args.extend(["--summary", "s"]);
+        let o = ordin_in(d, &args, &[]);
+        assert_eq!(o.status.code(), Some(0), "{}", stderr(&o));
+        let file = format!("hello-1.4.2^20261114.2.g{}-1.noarch.ordin", &head[..7]);
+        let out = stdout(&o);
+        assert!(out.starts_with(&format!("wrote {file} (")), "{out}");
+        assert!(out.ends_with(&format!("\ncommit {head}\n")), "{out}");
+        // The full commit is in the manifest's provenance.
+        let v = show_json(d, &file);
+        assert_eq!(
+            v["manifest"]["version"]["upstream"],
+            format!("1.4.2^20261114.2.g{}", &head[..7])
+        );
+        assert_eq!(v["manifest"]["provenance"]["commit"], head.as_str());
+        let o = ordin(d, &["show", &file]);
+        assert!(
+            stdout(&o).contains(&format!("\ncommit: {head}\n")),
+            "{}",
+            stdout(&o)
+        );
+        // With --json, the commit is reported too.
+        args.extend(["-o", "again.ordin", "--json", "--release", "2"]);
+        let o = ordin_in(d, &args, &[]);
+        assert_eq!(o.status.code(), Some(0), "{}", stdout(&o));
+        let v: Value = serde_json::from_str(&stdout(&o)).unwrap();
+        assert_eq!(v["commit"], head.as_str());
+        assert_eq!(v["version"], format!("1.4.2^20261114.2.g{}-2", &head[..7]));
+    }
+
+    #[test]
+    fn exactly_one_of_version_and_version_from_is_given() {
+        let (dir, _) = checkout();
+        let d = dir.path();
+        let mut both = FROM_GIT.to_vec();
+        both.extend(["--version", "1.0"]);
+        let o = ordin_in(d, &both, &[]);
+        assert_eq!(o.status.code(), Some(2));
+        assert!(stderr(&o).contains("cannot be used with"), "{}", stderr(&o));
+        let o = ordin_in(d, &["pack", "root", "--name", "hello"], &[]);
+        assert_eq!(o.status.code(), Some(2));
+        assert!(stderr(&o).contains("--version <VERSION>"), "{}", stderr(&o));
+        let o = ordin_in(
+            d,
+            &["pack", "root", "--name", "hello", "--version-from", "svn"],
+            &[],
+        );
+        assert_eq!(o.status.code(), Some(2));
+    }
+
+    #[test]
+    fn version_from_git_says_why_it_cant() {
+        let (dir, head) = checkout();
+        let d = dir.path();
+        // A changed tracked file.
+        fs::write(d.join("src"), b"changed\n").unwrap();
+        let o = ordin_in(d, &FROM_GIT, &[]);
+        assert_eq!(o.status.code(), Some(1));
+        assert_eq!(
+            stderr(&o).lines().last().unwrap(),
+            format!(
+                "ordin: error: making the version from git: tracked files differ from the \
+                 commit {head}; commit or stash them, so the version describes what is packed"
+            )
+        );
+        // Not a repository.
+        let none = tempfile::tempdir().unwrap();
+        write(&none.path().join("root"), "usr/bin/x", b"x\n", 0o755);
+        let o = ordin_in(none.path(), &FROM_GIT, &[]);
+        assert_eq!(o.status.code(), Some(1));
+        let err = stderr(&o);
+        assert!(
+            err.contains(
+                "ordin: error: making the version from git: git rev-parse \
+                 --is-shallow-repository failed: fatal: not a git repository"
+            ),
+            "{err}"
+        );
+        // No git at all.
+        let o = ordin_in(d, &FROM_GIT, &[("PATH", "/nonexistent")]);
+        assert_eq!(o.status.code(), Some(1));
+        assert_eq!(
+            stderr(&o).lines().last().unwrap(),
+            "ordin: error: making the version from git: can't run git: No such file or \
+             directory (os error 2)"
+        );
     }
 }

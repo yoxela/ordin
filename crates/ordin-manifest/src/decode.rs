@@ -333,6 +333,22 @@ fn ascii(v: &Value, p: &Path, max: usize, what: &str) -> R<String> {
     Ok(s.to_owned())
 }
 
+/// A git commit's full object name: 40 lowercase hex digits (SHA-1) or
+/// 64 (SHA-256).
+fn commit(v: &Value, p: &Path) -> R<String> {
+    let s = string(v, p)?;
+    let hex = s
+        .bytes()
+        .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b));
+    if !matches!(s.len(), 40 | 64) || !hex {
+        return invalid(
+            p,
+            format!("a git commit is 40 or 64 lowercase hex digits, not {s:?}"),
+        );
+    }
+    Ok(s.to_owned())
+}
+
 /// A name drawn from a small grammar: `allowed` characters, 1 to `max`.
 fn word(v: &Value, p: &Path, max: usize, allowed: fn(char) -> bool, what: &str) -> R<String> {
     let s = string(v, p)?;
@@ -699,8 +715,12 @@ impl Decoder {
             .opt(self, "sbom")
             .map(|(v, p)| digest(v, &p, true))
             .transpose()?;
+        let commit = o
+            .opt(self, "commit")
+            .map(|(v, p)| commit(v, &p))
+            .transpose()?;
         o.finish(self)?;
-        Ok(Provenance { slsa, sbom })
+        Ok(Provenance { slsa, sbom, commit })
     }
 
     fn facets(&mut self, v: &Value, p: &Path) -> R<BTreeMap<Facet, FacetEntry>> {

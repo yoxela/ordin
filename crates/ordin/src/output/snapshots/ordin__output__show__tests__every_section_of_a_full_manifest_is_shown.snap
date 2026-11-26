@@ -1,6 +1,6 @@
 ---
 source: crates/ordin/src/output/show.rs
-assertion_line: 782
+assertion_line: 843
 expression: "text(&package(&m), None)"
 ---
 nginx 1:1.27.3-2 (x86_64, base)
@@ -13,6 +13,9 @@ homepage: https://nginx.org/
 license: BSD-2-Clause OR MIT (texts: BSD-2-Clause, MIT)
 license presentation: display
 source: https://github.com/nginx/nginx at release-1.27.3
+commit: 3fa9c1e5d8b2a7f40c6e1d9b8a7f6e5d4c3b2a19
+SLSA attestation: sha256:4444444444444444444444444444444444444444444444444444444444444444
+SBOM: blake3:5555555555555555555555555555555555555555555555555555555555555555
 applies live: yes
 needs a reboot: yes
 support: active until 2027-06-30, security fixes until 2028-06-30, then nginx-1.29

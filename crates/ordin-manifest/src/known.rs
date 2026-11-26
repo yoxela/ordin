@@ -93,6 +93,7 @@ pub(crate) const KNOWN_FIELDS: &[&str] = &[
     "obsoletes",
     "ordin",
     "provenance",
+    "provenance.commit",
     "provenance.sbom",
     "provenance.slsa",
     "provides",

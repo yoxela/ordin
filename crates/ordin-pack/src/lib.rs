@@ -19,6 +19,7 @@ mod attrs;
 pub mod elf;
 mod error;
 mod facets;
+pub mod git;
 mod infer;
 mod layout;
 mod owners;

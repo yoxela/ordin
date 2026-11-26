@@ -372,13 +372,17 @@ pub struct Source {
     pub recipe: Digest,
 }
 
-/// Attestations carried beside the manifest.
+/// Where the package came from: attestations carried beside the
+/// manifest, and the commit it was built from.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Provenance {
     /// The SLSA attestation.
     pub slsa: Option<Digest>,
     /// The SBOM.
     pub sbom: Option<Digest>,
+    /// The git commit built: its full object name, 40 lowercase hex
+    /// digits (SHA-1) or 64 (SHA-256).
+    pub commit: Option<String>,
 }
 
 /// One facet.

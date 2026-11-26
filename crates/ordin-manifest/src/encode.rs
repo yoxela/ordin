@@ -122,6 +122,7 @@ pub(crate) fn manifest(m: &Manifest) -> Value {
         Obj::default()
             .put("slsa", opt_s(p.slsa))
             .put("sbom", opt_s(p.sbom))
+            .put("commit", opt_s(p.commit.as_ref()))
             .build()
     });
     let facets = map(&m.facets, |f| {
