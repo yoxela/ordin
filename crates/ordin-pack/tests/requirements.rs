@@ -780,6 +780,7 @@ mod requirements {
                 threads: std::num::NonZeroUsize::MIN,
             },
             signer: None,
+            commit: None,
         }
     }
 

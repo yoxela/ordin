@@ -498,6 +498,30 @@ fn grammars_are_checked_where_they_apply() {
         ),
         ("/source/rev", r#""a b""#, "source.rev", "printable ASCII"),
         (
+            "/provenance/commit",
+            &format!("\"{}\"", "A".repeat(40)),
+            "provenance.commit",
+            "40 or 64 lowercase hex digits",
+        ),
+        (
+            "/provenance/commit",
+            &format!("\"{}\"", "a".repeat(39)),
+            "provenance.commit",
+            "40 or 64 lowercase hex digits",
+        ),
+        (
+            "/provenance/commit",
+            &format!("\"{}\"", "a".repeat(41)),
+            "provenance.commit",
+            "40 or 64 lowercase hex digits",
+        ),
+        (
+            "/provenance/commit",
+            &format!("\"{}g\"", "a".repeat(39)),
+            "provenance.commit",
+            "40 or 64 lowercase hex digits",
+        ),
+        (
             "/abi/libngx.so.1@V1",
             &format!("\"blake3:{}\"", "a".repeat(64)),
             "abi.libngx.so.1@V1",
@@ -1140,6 +1164,15 @@ fn small_objects_with_only_some_parts_round_trip() {
         (
             "/provenance",
             &format!(r#"{{"sbom": "blake3:{}"}}"#, "e".repeat(64)),
+        ),
+        // A commit alone, of either length.
+        (
+            "/provenance",
+            &format!(r#"{{"commit": "{}"}}"#, "0a".repeat(20)),
+        ),
+        (
+            "/provenance",
+            &format!(r#"{{"commit": "{}"}}"#, "9f".repeat(32)),
         ),
     ] {
         let text = edit(MINIMAL, at, Some(value)).unwrap();

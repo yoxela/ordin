@@ -15,7 +15,7 @@ use ordin_core::{Arch, Digest, Facet, FilePath, PackageName};
 use ordin_depexpr::{Expr, Requirement};
 use ordin_manifest::spdx;
 use ordin_manifest::{
-    FacetEntry, Kind as PackageKind, License, Manifest, Presentation, Provide, State,
+    FacetEntry, Kind as PackageKind, License, Manifest, Presentation, Provenance, Provide, State,
 };
 use ordin_sign::SecretKey;
 use ordin_tree::chunk::ChunkParams;
@@ -62,6 +62,9 @@ pub struct PackOptions {
     pub write: WriteOptions,
     /// The key to sign the package with, if any.
     pub signer: Option<Arc<SecretKey>>,
+    /// The git commit built, if known: its full object name, recorded in
+    /// the manifest's provenance.
+    pub commit: Option<String>,
 }
 
 /// Where [`pack`] writes the package.
@@ -404,6 +407,11 @@ pub fn pack(options: &PackOptions, out: &Output) -> Result<Packed, PackError> {
         .collect();
     manifest.declares.config = layout.config.clone();
     manifest.declares.setuid = setuid;
+    manifest.provenance = options.commit.clone().map(|commit| Provenance {
+        slsa: None,
+        sbom: None,
+        commit: Some(commit),
+    });
     if !(layout.state_paths.is_empty() && layout.state_files.is_empty() && layout.seeds.is_empty())
     {
         manifest.state = Some(State {

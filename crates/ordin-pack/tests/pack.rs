@@ -107,6 +107,7 @@ mod packing {
                 threads: std::num::NonZeroUsize::new(2).unwrap(),
             },
             signer: None,
+            commit: None,
         }
     }
 

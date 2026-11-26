@@ -52,8 +52,14 @@ pub fn pack_json(report: &Report) -> String {
             )
         })
         .collect();
+    let commit = m
+        .provenance
+        .as_ref()
+        .and_then(|p| p.commit.as_ref())
+        .map_or(Value::Null, text);
     let value = object([
         ("arch", text(m.arch)),
+        ("commit", commit),
         ("facets", Value::Object(facets)),
         ("file", text(report.packed.out.display())),
         ("image", text(report.packed.written.image)),
@@ -97,6 +103,9 @@ pub fn pack_text(report: &Report) -> String {
         report.packed.written.package,
         facets.join(", ")
     );
+    if let Some(commit) = m.provenance.as_ref().and_then(|p| p.commit.as_ref()) {
+        out.push_str(&format!("commit {commit}\n"));
+    }
     if let Some(key) = &report.signer {
         out.push_str(&format!("signed by {key}\n"));
     }

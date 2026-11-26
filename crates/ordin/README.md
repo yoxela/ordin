@@ -5,14 +5,15 @@ The ordin command-line interface. Layer 3 (program), licensed GPL-3.0-or-later.
 ## `ordin pack`
 
 ```
-ordin pack DIR --name NAME --version VERSION [options]
+ordin pack DIR --name NAME (--version VERSION | --version-from git) [options]
 ```
 
-Makes a package from an install root (rung 0): what `make install DESTDIR=DIR` filled. Only `--name` and `--version` are needed.
+Makes a package from an install root (rung 0): what `make install DESTDIR=DIR` filled. Only `--name` and a version are needed.
 
 | Option | Default | Meaning |
 | --- | --- | --- |
 | `--version VERSION` | | The upstream version, with an optional epoch: `2.12`, `1:2.0` |
+| `--version-from git` | | Make the version from the git checkout at the working directory, and record its commit; see below. Instead of `--version`. |
 | `--release N` | `1` | The release number |
 | `--license EXPR` | `NOASSERTION`, with a warning | An SPDX license expression |
 | `--license-file ID=PATH` | | The text of one license ID in `--license`. Repeat it for each ID. Every ID needs one, except for `NOASSERTION` and `NONE`. A text is at most 1 MiB. |
@@ -28,9 +29,15 @@ Makes a package from an install root (rung 0): what `make install DESTDIR=DIR` f
 
 Paths in `--owner`, `--setuid` and `--prefix` are paths in `DIR`, with or without the leading `/`.
 
-**What it prints.** It prints the file written, the package's identity and the facets with their sizes.
+**What it prints.** It prints the file written, the package's identity and the facets with their sizes, and the commit with `--version-from git`.
 - Warnings go to standard error, for example for a default that was used, or a setuid file nobody declared.
-- With `--json`, it prints one canonical JSON object instead. Its fields are `arch`, `facets` (each with `size` and `tree`), `file`, `image`, `license`, `name`, `package`, `provides`, `requires`, `signatures` (the keys it was signed with), `size`, `version` and `warnings`.
+- With `--json`, it prints one canonical JSON object instead. Its fields are `arch`, `commit` (the git commit recorded, or `null`), `facets` (each with `size` and `tree`), `file`, `image`, `license`, `name`, `package`, `provides`, `requires`, `signatures` (the keys it was signed with), `size`, `version` and `warnings`.
+
+**Versions from git.** `--version-from git` versions a snapshot build from its checkout, so nightly packages sort correctly:
+- After the nearest tag that looks like a version (`v1.4.2` or `1.4.2`): the tag's version, `^`, HEAD's commit date in UTC, the number of commits since the tag and the first 7 hex digits of the commit: `1.4.2^20261112.37.g3fa9c1e`. That sorts after 1.4.2 and before 1.4.3. With no such tag, it starts from `0^`. At the tagged commit itself, it is the tag's version: `1.4.2`.
+- The full commit is recorded in the manifest's `provenance.commit`, and printed.
+- A checkout whose tracked files differ from HEAD is refused, since the version would describe something else; untracked files, such as the install root, don't count. A shallow clone is refused, since it can't count the commits: fetch the whole history (`fetch-depth: 0` in GitHub Actions).
+- The `git` program is run with read-only commands only, without the file-system monitor, replace refs, a pager or a prompt.
 
 **Requirements are inferred.** Shared-library requirements and provides come from the ELF files, with symbol versions, and interpreters from `#!` lines. `ordin-pack`'s README has the rules. What can't be inferred safely is a warning, never a guess.
 - With `--json`, an error is printed as `{"error": "..."}`, and nothing goes to standard error.

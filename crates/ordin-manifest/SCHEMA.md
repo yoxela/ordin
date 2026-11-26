@@ -143,7 +143,13 @@ Each is a whole expression on its own: it is refused when combined with `AND` or
 | `rev` | string | yes | The revision built: a tag or a commit, 1 to 128 printable ASCII characters |
 | `recipe` | *digest* | yes | The recipe that built it |
 
-`provenance`: `slsa` and `sbom`, each a *digest* (BLAKE3, or SHA-256 for attestations made by outside tools) of an attestation or SBOM carried beside the manifest. At least one.
+`provenance`: where the package came from. At least one of:
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `slsa` | *digest* | The SLSA attestation carried beside the manifest: BLAKE3, or SHA-256 for one made by an outside tool |
+| `sbom` | *digest* | The SBOM carried beside the manifest, the same way |
+| `commit` | string | The git commit built, as its full object name: 40 lowercase hex digits for SHA-1, 64 for SHA-256. `ordin pack --version-from git` records it; a snapshot version carries only a short form, for reading |
 
 ## Facets
 

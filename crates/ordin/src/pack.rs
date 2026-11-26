@@ -13,7 +13,7 @@ use ordin_sign::{PublicKey, SecretKey};
 use ordin_tree::chunk::ChunkParams;
 use ordin_version::Version;
 
-use crate::cli::PackArgs;
+use crate::cli::{PackArgs, VersionFrom};
 use crate::{files, keys};
 
 /// The largest license text read, in bytes: the most a `.ordin` file
@@ -82,7 +82,17 @@ fn hint(e: PackError) -> anyhow::Error {
 /// helps.
 pub fn run(args: &PackArgs) -> Result<Report> {
     let mut warnings = Vec::new();
-    let version = version(&args.version, &args.release)?;
+    // clap requires exactly one of --version and --version-from; were
+    // neither given, the empty version would be refused.
+    let (upstream, commit) = match args.version_from {
+        Some(VersionFrom::Git) => {
+            let made =
+                ordin_pack::git::version(Path::new(".")).context("making the version from git")?;
+            (made.upstream, Some(made.commit))
+        }
+        None => (args.version.clone().unwrap_or_default(), None),
+    };
+    let version = version(&upstream, &args.release)?;
     let summary = args.summary.clone().unwrap_or_else(|| {
         warnings.push("no --summary was given, so the summary is the package's name".to_owned());
         args.name.to_string()
@@ -115,6 +125,7 @@ pub fn run(args: &PackArgs) -> Result<Report> {
         chunking: ChunkParams::DEFAULT,
         write: ordin_archive::Options::default(),
         signer: signer.map(Arc::new),
+        commit,
     };
     let packed = ordin_pack::pack(&options, &out).map_err(hint)?;
     warnings.extend(packed.warnings.iter().map(ToString::to_string));

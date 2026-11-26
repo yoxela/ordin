@@ -233,6 +233,17 @@ fn header(out: &mut Text, p: &Package<'_>, files: Option<&[(Facet, usize)]>) {
     if let Some(s) = &m.source {
         out.line(&format!("source: {} at {}", t(&s.repo), t(&s.rev)));
     }
+    if let Some(p) = &m.provenance {
+        if let Some(commit) = &p.commit {
+            out.line(&format!("commit: {}", t(commit)));
+        }
+        if let Some(d) = p.slsa {
+            out.line(&format!("SLSA attestation: {d}"));
+        }
+        if let Some(d) = p.sbom {
+            out.line(&format!("SBOM: {d}"));
+        }
+    }
     if m.live_apply {
         out.line("applies live: yes");
     }
