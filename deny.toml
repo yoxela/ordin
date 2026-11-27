@@ -33,6 +33,13 @@ ignore = true
 multiple-versions = "warn"
 wildcards = "deny"
 allow-wildcard-paths = true
+# Each skip names one exact version, so a newer duplicate warns again.
+skip = [
+    # curve25519-dalek-derive 0.1.1, the latest, still uses syn 2. It is
+    # only built on x86_64, for ed25519-dalek's SIMD backend; everything
+    # else uses syn 3.
+    { crate = "syn@2.0.119", reason = "curve25519-dalek-derive 0.1.1 (via ed25519-dalek) still uses syn 2" },
+]
 
 [sources]
 unknown-registry = "deny"

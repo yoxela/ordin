@@ -199,6 +199,7 @@ All notable changes to Ordin are recorded here. The format follows [Keep a Chang
 - The first release will be 0.1.1. The `v0.1.0` tag was used once to test the release flow end to end and then deleted, so it is never reused.
 - The `cargo deny` license allow list drops BSD-2-Clause, BSD-3-Clause and ISC, which no dependency uses. Adding one back is a deliberate decision when a dependency needs it.
 - The `cargo deny` license allow list takes BSD-2-Clause and BSD-3-Clause back, for `zstd` and its bundled libzstd (ORD-130).
+- `cargo deny` no longer warns that `syn` appears twice. `curve25519-dalek-derive` 0.1.1, the latest release, still uses syn 2; it is built only on x86_64, for `ed25519-dalek`'s SIMD backend. `deny.toml` skips exactly `syn@2.0.119` with that reason, so any other duplicate, or a newer syn 2, still warns.
 
 ### Fixed
 
