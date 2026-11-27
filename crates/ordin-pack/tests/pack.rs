@@ -92,7 +92,10 @@ mod packing {
             version: "2.12-1".parse().unwrap(),
             arch: Some(Arch::X86_64),
             summary: "Prints a friendly greeting".to_owned(),
+            description: None,
+            homepage: None,
             license: "MIT".to_owned(),
+            presentation: ordin_manifest::Presentation::Informational,
             license_texts: BTreeMap::from([("MIT".to_owned(), b"MIT License\n".to_vec())]),
             owners: vec![
                 "/usr/bin/helper=root:wheel"
@@ -108,6 +111,7 @@ mod packing {
             },
             signer: None,
             commit: None,
+            declared: ordin_recipe::Declared::default(),
         }
     }
 
@@ -614,5 +618,236 @@ mod packing {
         let debug = Facet::debug();
         assert!(!p.manifest.facets[&debug].default);
         assert!(p.notes.is_empty());
+    }
+
+    // What a recipe declares (ORD-121).
+
+    /// What the recipe in these tests declares, beside what the root
+    /// shows.
+    const RECIPE: &str = r#"format = 1
+[package]
+requires = ["file:/usr/bin/sh", "cap:greeter >= 1"]
+provides = ["cap:hello = 2"]
+conflicts = ["goodbye"]
+
+[[user]]
+name = "hello"
+[[group]]
+name = "hello"
+[[unit]]
+name = "hello.service"
+preset = "enable"
+[[unit]]
+name = "hello@tty1.service"
+preset = "disable"
+[[setting]]
+name = "greeting"
+type = "string"
+default = "hi"
+
+[state]
+version = 1
+obsolete = ["/var/lib/hello/old"]
+[[state.path]]
+path = "/var/lib/hello"
+class = "data"
+owner = "hello:hello"
+mode = "0750"
+[[state.path]]
+path = "/var/cache/hello"
+class = "cache"
+[[state.file]]
+path = "/var/log/hello.log"
+[[state.seed]]
+path = "/var/lib/hello/extra.db"
+from = "/usr/share/hello/extra.db"
+
+[facets.doc]
+extra = ["/usr/lib/hello"]
+"#;
+
+    fn declared(text: &str) -> ordin_recipe::Declared {
+        ordin_recipe::parse(text).unwrap().declared
+    }
+
+    /// The fixture's root, with the files the recipe's units and seed
+    /// need.
+    fn declared_root(at: &Path) {
+        root(at, false);
+        write(
+            at,
+            "usr/lib/systemd/system/hello.service",
+            b"[Unit]\n",
+            0o644,
+        );
+        write(
+            at,
+            "usr/lib/systemd/user/hello@.service",
+            b"[Unit]\n",
+            0o644,
+        );
+        write(at, "usr/share/hello/extra.db", b"extra\n", 0o644);
+    }
+
+    fn texts<T: ToString>(items: &[T]) -> Vec<String> {
+        items.iter().map(ToString::to_string).collect()
+    }
+
+    #[test]
+    fn what_a_recipe_declares_is_added_to_what_is_inferred() {
+        let dir = temp();
+        let r = dir.path().join("root");
+        declared_root(&r);
+        let (plain, _) = packed(&options(&r), &dir.path().join("plain.ordin"));
+        let mut o = options(&r);
+        o.declared = declared(RECIPE);
+        o.description = Some("Says hello, at length.".to_owned());
+        o.homepage = Some("https://example.org/hello".parse().unwrap());
+        o.presentation = ordin_manifest::Presentation::Accept;
+        let (p, bytes) = packed(&o, &dir.path().join("x.ordin"));
+        let m = &p.manifest;
+        // What Packed holds is what was signed.
+        let signed = Manifest::from_signed_bytes(&m.to_canonical_bytes().unwrap()).unwrap();
+        assert_eq!(&signed.0, m);
+        assert_eq!(signed.1, p.written.package);
+        assert!(!bytes.is_empty());
+
+        assert_eq!(m.description.as_deref(), Some("Says hello, at length."));
+        assert_eq!(
+            m.homepage.as_ref().unwrap().to_string(),
+            "https://example.org/hello"
+        );
+        assert_eq!(m.license.presentation, ordin_manifest::Presentation::Accept);
+        // Requirements and provides: the inferred ones and the declared
+        // ones, each once, sorted.
+        assert_eq!(texts(&plain.manifest.requires), ["file:/usr/bin/sh"]);
+        let mut requires = texts(&plain.manifest.requires);
+        requires.push("cap:greeter >= 1".to_owned());
+        requires.sort();
+        assert_eq!(texts(&m.requires), requires);
+        let mut provides = texts(&plain.manifest.provides);
+        provides.push("cap:hello = 2".to_owned());
+        provides.sort();
+        assert_eq!(texts(&m.provides), provides);
+        assert_eq!(texts(&m.conflicts), ["goodbye"]);
+        assert!(plain.manifest.conflicts.is_empty());
+        // Declarations, as declared.
+        let d = declared(RECIPE);
+        assert_eq!(m.declares.users, d.users);
+        assert_eq!(m.declares.groups, d.groups);
+        assert_eq!(m.declares.units, d.units);
+        assert_eq!(m.settings, d.settings);
+        // State: the declared path wins over the inferred one at the same
+        // path, and the inferred seed stays beside the declared one.
+        let inferred = plain.manifest.state.as_ref().unwrap();
+        assert_eq!(
+            texts(&inferred.paths.iter().map(|x| &x.path).collect::<Vec<_>>()),
+            ["/var/lib/hello"]
+        );
+        assert_eq!(inferred.paths[0].mode, ordin_core::Mode::DIR);
+        let state = m.state.as_ref().unwrap();
+        assert_eq!(state.version, 1);
+        assert_eq!(texts(&state.obsolete), ["/var/lib/hello/old"]);
+        assert_eq!(
+            state
+                .paths
+                .iter()
+                .map(|x| (x.path.to_string(), x.mode.to_string(), x.owner.to_string()))
+                .collect::<Vec<_>>(),
+            [
+                (
+                    "/var/cache/hello".to_owned(),
+                    "0755".to_owned(),
+                    "root".to_owned()
+                ),
+                (
+                    "/var/lib/hello".to_owned(),
+                    "0750".to_owned(),
+                    "hello".to_owned()
+                ),
+            ]
+        );
+        assert_eq!(
+            texts(&state.files.iter().map(|x| &x.path).collect::<Vec<_>>()),
+            ["/var/log/hello.log"]
+        );
+        assert_eq!(
+            texts(&state.seeds.iter().map(|x| &x.path).collect::<Vec<_>>()),
+            ["/var/lib/hello/extra.db", "/var/lib/hello/seed.db"]
+        );
+        // The facet override moved the large file to doc.
+        let size = |p: &Packed, f: &str| p.manifest.facets[&f.parse::<Facet>().unwrap()].size;
+        let big = big().len() as u64;
+        assert_eq!(size(&p, "doc"), size(&plain, "doc") + big);
+        assert_eq!(size(&p, "runtime") + big, size(&plain, "runtime"));
+    }
+
+    #[test]
+    fn declared_state_alone_is_state() {
+        let dir = temp();
+        let r = dir.path().join("root");
+        write(&r, "usr/bin/hello", b"hello\n", 0o755);
+        let mut o = options(&r);
+        o.owners.clear();
+        o.setuid.clear();
+        let (plain, _) = packed(&o, &dir.path().join("plain.ordin"));
+        assert!(plain.manifest.state.is_none());
+        for (recipe, version, obsolete) in [
+            ("[state]\nversion = 3\n", 3, 0),
+            ("[state]\nobsolete = [\"/var/lib/x\"]\n", 0, 1),
+        ] {
+            o.declared = declared(&format!("format = 1\n{recipe}"));
+            let (p, _) = packed(&o, &dir.path().join("x.ordin"));
+            let state = p.manifest.state.unwrap();
+            assert_eq!((state.version, state.obsolete.len()), (version, obsolete));
+            fs::remove_file(dir.path().join("x.ordin")).unwrap();
+        }
+    }
+
+    #[test]
+    fn a_declared_unit_or_seed_must_be_in_the_package() {
+        let dir = temp();
+        let r = dir.path().join("root");
+        declared_root(&r);
+        let fails = |recipe: &str| {
+            let mut o = options(&r);
+            o.declared = declared(&format!("format = 1\n{recipe}"));
+            pk(&o, &dir.path().join("x.ordin")).unwrap_err()
+        };
+        let unit = |name: &str| format!("[[unit]]\nname = \"{name}\"\npreset = \"enable\"\n");
+        let e = fails(&unit("goodbye.service"));
+        assert!(matches!(e, PackError::UnitMissing { .. }), "{e:?}");
+        assert_eq!(
+            e.to_string(),
+            "the unit goodbye.service is declared, but the package has no goodbye.service \
+             in /usr/lib/systemd/system or /usr/lib/systemd/user"
+        );
+        // An instance needs its template; the template alone is enough.
+        let e = fails(&unit("hello@tty1.socket"));
+        assert_eq!(
+            e.to_string(),
+            "the unit hello@tty1.socket is declared, but the package has no hello@.socket \
+             in /usr/lib/systemd/system or /usr/lib/systemd/user"
+        );
+        // A file in the right directory, but another unit's.
+        let e = fails(&unit("hello.socket"));
+        assert!(e.to_string().contains("has no hello.socket"), "{e}");
+        let seed = |from: &str| {
+            format!("[[state.seed]]\npath = \"/var/lib/hello/x.db\"\nfrom = \"{from}\"\n")
+        };
+        for from in ["/usr/share/hello/missing.db", "/usr/share/hello"] {
+            let e = fails(&seed(from));
+            assert!(matches!(e, PackError::SeedMissing { .. }), "{e:?}");
+            assert_eq!(
+                e.to_string(),
+                format!(
+                    "the seed for /var/lib/hello/x.db is copied from {from}, which isn't a file in the package"
+                )
+            );
+        }
+        // A facet override must match something.
+        let e = fails("[facets.doc]\nextra = [\"/usr/lib/nothing\"]\n");
+        assert!(matches!(e, PackError::Facets(_)), "{e:?}");
+        assert!(!dir.path().join("x.ordin").exists());
     }
 }

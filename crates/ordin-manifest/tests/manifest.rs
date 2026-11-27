@@ -868,6 +868,26 @@ fn settings_are_typed() {
         "settings[0].pattern",
         "regular expression",
     );
+    // On one line: what is wrong, and where, for the parser's mistakes
+    // and the translator's.
+    for (pattern, why) in [
+        (
+            "[a0X--9z-+",
+            "not a valid regular expression: invalid character class range, \
+             the start must be <= the end, at byte 7 of the pattern",
+        ),
+        (
+            "(?-u)\\xFF",
+            "not a valid regular expression: pattern can match invalid UTF-8, \
+             at byte 5 of the pattern",
+        ),
+    ] {
+        let text = format!(
+            r#"{{"name": "cluster-name", "type": "string", "pattern": {}}}"#,
+            serde_json::to_string(pattern).unwrap()
+        );
+        s(0, &text, "settings[0].pattern", why);
+    }
     s(
         0,
         r#"{"name": "cluster-name", "type": "string", "min": 1}"#,

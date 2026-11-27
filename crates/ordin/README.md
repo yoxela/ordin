@@ -5,20 +5,23 @@ The ordin command-line interface. Layer 3 (program), licensed GPL-3.0-or-later.
 ## `ordin pack`
 
 ```
-ordin pack DIR --name NAME (--version VERSION | --version-from git) [options]
+ordin pack DIR [--name NAME] [--version VERSION | --version-from git] [options]
 ```
 
-Makes a package from an install root (rung 0): what `make install DESTDIR=DIR` filled. Only `--name` and a version are needed.
+Makes a package from an install root: what `make install DESTDIR=DIR` filled. Only a name and a version are needed, from the flags or from a recipe (rung 1, below); without them it exits with 2.
 
 | Option | Default | Meaning |
 | --- | --- | --- |
-| `--version VERSION` | | The upstream version, with an optional epoch: `2.12`, `1:2.0` |
+| `--manifest FILE` | `./ordin.toml`, if there is one | The recipe to read |
+| `--no-manifest` | | Read no recipe, not even `./ordin.toml` |
+| `--name NAME` | the recipe's | The package's name |
+| `--version VERSION` | the recipe's | The upstream version, with an optional epoch: `2.12`, `1:2.0` |
 | `--version-from git` | | Make the version from the git checkout at the working directory, and record its commit; see below. Instead of `--version`. |
-| `--release N` | `1` | The release number |
-| `--license EXPR` | `NOASSERTION`, with a warning | An SPDX license expression |
-| `--license-file ID=PATH` | | The text of one license ID in `--license`. Repeat it for each ID. Every ID needs one, except for `NOASSERTION` and `NONE`. A text is at most 1 MiB. |
-| `--summary TEXT` | the name, with a warning | One line about the package |
-| `--arch ARCH` | found from the package's programs and libraries, and `noarch` if it has none | `x86_64`, `aarch64` or `noarch`. It must match the programs and libraries. |
+| `--release N` | the recipe's, or `1` | The release number |
+| `--license EXPR` | the recipe's, or `NOASSERTION` with a warning | An SPDX license expression |
+| `--license-file ID=PATH` | | The text of one license ID in the license. Repeat it for each ID. Every ID needs one, from here or from the recipe, except for `NOASSERTION` and `NONE`. It replaces the recipe's text for that ID. A text is at most 1 MiB. |
+| `--summary TEXT` | the recipe's, or the name with a warning | One line about the package |
+| `--arch ARCH` | the recipe's, or found from the package's programs and libraries, and `noarch` if it has none | `x86_64`, `aarch64` or `noarch`. It must match the programs and libraries. |
 | `-o`, `--out FILE` | `NAME-VERSION.ARCH.ordin` here | The file to write. An epoch's `:` becomes `_`. An existing file is replaced. |
 | `--owner PATH=USER:GROUP` | `root:root` | The owner of a path in `DIR` and everything below it. Repeatable. |
 | `--setuid PATH` | | A file in `DIR` that is setuid or setgid on purpose. Repeatable. |
@@ -29,9 +32,15 @@ Makes a package from an install root (rung 0): what `make install DESTDIR=DIR` f
 
 Paths in `--owner`, `--setuid` and `--prefix` are paths in `DIR`, with or without the leading `/`.
 
-**What it prints.** It prints the file written, the package's identity and the facets with their sizes, and the commit with `--version-from git`.
+**What it prints.** It prints the file written, the package's identity and the facets with their sizes, then the recipe read, if any, and the commit with `--version-from git`.
 - Warnings go to standard error, for example for a default that was used, or a setuid file nobody declared.
-- With `--json`, it prints one canonical JSON object instead. Its fields are `arch`, `commit` (the git commit recorded, or `null`), `facets` (each with `size` and `tree`), `file`, `image`, `license`, `name`, `package`, `provides`, `requires`, `signatures` (the keys it was signed with), `size`, `version` and `warnings`.
+- With `--json`, it prints one canonical JSON object instead. Its fields are `arch`, `commit` (the git commit recorded, or `null`), `facets` (each with `size` and `tree`), `file`, `image`, `license`, `name`, `package`, `provides`, `recipe` (the recipe read, or `null`), `requires`, `signatures` (the keys it was signed with), `size`, `version` and `warnings`.
+
+**A recipe** (rung 1, `crates/ordin-recipe/FORMAT.md`) gives what can't be inferred, in about ten lines of TOML: the name, version, summary and license with its texts and presentation, extra requirements, provides and conflicts, users, groups, units, settings, state, and paths moved to another facet.
+- It is `./ordin.toml` in the working directory, the project's own file beside its checkout, or the file `--manifest` names. Its license paths are relative to its own directory, and are read without leaving it or going through a symlink.
+- A flag wins over the recipe's value for the same field. Requirements and provides are added to the inferred ones, and declared state wins over inferred state at the same path.
+- A unit must be shipped by the package (in `/usr/lib/systemd/system/` or `/usr/lib/systemd/user/`, or its template for an instance), and a seed's source must be a file in the package.
+- A mistake in it is an error naming the file, line and column: `ordin.toml:3:8: expected a package name: …`.
 
 **Versions from git.** `--version-from git` versions a snapshot build from its checkout, so nightly packages sort correctly:
 - After the nearest tag that looks like a version (`v1.4.2` or `1.4.2`): the tag's version, `^`, HEAD's commit date in UTC, the number of commits since the tag and the first 7 hex digits of the commit: `1.4.2^20261112.37.g3fa9c1e`. That sorts after 1.4.2 and before 1.4.3. With no such tag, it starts from `0^`. At the tagged commit itself, it is the tag's version: `1.4.2`.

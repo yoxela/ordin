@@ -1276,8 +1276,7 @@ impl Decoder {
                         ErrorKind::OutOfRange("a pattern is 1 to 256 bytes".into()),
                     );
                 }
-                regex_syntax::Parser::new()
-                    .parse(s)
+                pattern(s)
                     .or_else(|e| invalid(&p, format!("not a valid regular expression: {e}")))?;
                 Some((s.to_owned(), p))
             }
@@ -1694,25 +1693,7 @@ impl Decoder {
 }
 
 fn provide(v: &Value, p: &Path) -> R<Provide> {
-    canonical(
-        v,
-        p,
-        |text| {
-            let (atom, version) = match text.split_once('=') {
-                Some((a, ver)) => (a.trim(), Some(ver.trim())),
-                None => (text, None),
-            };
-            let atom: Atom = atom.parse().map_err(|e: ordin_core::Error| e.to_string())?;
-            let version = version
-                .map(|v| v.parse::<Version>().map_err(|e| e.to_string()))
-                .transpose()?;
-            if version.is_some() && !matches!(atom, Atom::Package(_) | Atom::Cap(_)) {
-                return Err("only package and cap: atoms can provide a version".into());
-            }
-            Ok(Provide { atom, version })
-        },
-        Provide::to_string,
-    )
+    canonical(v, p, str::parse, Provide::to_string)
 }
 
 fn replace(v: &Value, p: &Path) -> R<Requirement> {
@@ -1732,31 +1713,7 @@ fn replace(v: &Value, p: &Path) -> R<Requirement> {
 }
 
 fn condition(v: &Value, p: &Path) -> R<Condition> {
-    canonical(
-        v,
-        p,
-        |text| {
-            let rest = text
-                .strip_prefix("setting.")
-                .ok_or("a condition is setting.<name> or setting.<name> = <value>")?;
-            let (name, value) = match rest.split_once('=') {
-                Some((n, val)) => (n.trim(), Some(val.trim().to_owned())),
-                None => (rest, None),
-            };
-            let setting: Id = name.parse()?;
-            if let Some(val) = &value {
-                text::printable_ascii(val, "a condition value")?;
-                if val.is_empty() {
-                    return Err("a condition value can't be empty".into());
-                }
-            }
-            Ok(Condition { setting, value })
-        },
-        |c| match &c.value {
-            Some(v) => format!("setting.{} = {v}", c.setting),
-            None => format!("setting.{}", c.setting),
-        },
-    )
+    canonical(v, p, str::parse, Condition::to_string)
 }
 
 fn command(v: &Value, p: &Path) -> R<Vec<String>> {
@@ -1902,6 +1859,20 @@ fn setting_value(
             Ok(SettingValue::List(out))
         }
     }
+}
+
+/// Checks a regular expression as `regex_syntax::Parser` does, in its two
+/// steps, so a mistake is told on one line: what is wrong, and where.
+/// The crate's own message quotes the pattern over several lines.
+fn pattern(text: &str) -> Result<(), String> {
+    let at = |offset: usize| format!("at byte {offset} of the pattern");
+    let ast = regex_syntax::ast::parse::Parser::new()
+        .parse(text)
+        .map_err(|e| format!("{}, {}", e.kind(), at(e.span().start.offset)))?;
+    regex_syntax::hir::translate::Translator::new()
+        .translate(text, &ast)
+        .map_err(|e| format!("{}, {}", e.kind(), at(e.span().start.offset)))?;
+    Ok(())
 }
 
 /// Rules linking fields across the manifest.

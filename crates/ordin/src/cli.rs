@@ -140,14 +140,21 @@ pub struct ShowArgs {
 pub struct PackArgs {
     /// The install root: what `make install DESTDIR=…` filled.
     pub dir: PathBuf,
-    /// The package's name.
+    /// The recipe to read; ./ordin.toml if there is one and this isn't
+    /// given. Flags win over what it says.
+    #[arg(long, value_name = "FILE", conflicts_with = "no_manifest")]
+    pub manifest: Option<PathBuf>,
+    /// Don't read ./ordin.toml.
     #[arg(long)]
-    pub name: PackageName,
-    /// The upstream version, with an optional epoch: `2.12`, `1:2.0`.
+    pub no_manifest: bool,
+    /// The package's name; needed unless the recipe gives it.
+    #[arg(long)]
+    pub name: Option<PackageName>,
+    /// The upstream version, with an optional epoch: `2.12`, `1:2.0`;
+    /// needed unless --version-from or the recipe gives it.
     #[arg(
         long = "version",
         value_name = "VERSION",
-        required_unless_present = "version_from",
         conflicts_with = "version_from"
     )]
     pub version: Option<String>,
@@ -156,9 +163,9 @@ pub struct PackArgs {
     /// `1.4.2^20261112.37.g3fa9c1e`, and records its commit.
     #[arg(long, value_name = "SOURCE")]
     pub version_from: Option<VersionFrom>,
-    /// The release number.
-    #[arg(long, default_value = "1")]
-    pub release: String,
+    /// The release number; 1 unless the recipe gives another.
+    #[arg(long)]
+    pub release: Option<String>,
     /// The SPDX license expression; NOASSERTION if not given.
     #[arg(long)]
     pub license: Option<String>,

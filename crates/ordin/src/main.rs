@@ -38,13 +38,17 @@ fn main() -> ExitCode {
                 output::print(&output::pack_text(&report), &report.warnings);
                 ExitCode::SUCCESS
             }
-            Err(e) if args.json => {
-                output::print(&output::error_json(&e), &[]);
-                ExitCode::FAILURE
-            }
             Err(e) => {
-                output::print_error(&e);
-                ExitCode::FAILURE
+                if args.json {
+                    output::print(&output::error_json(&e), &[]);
+                } else {
+                    output::print_error(&e);
+                }
+                if e.is::<pack::Usage>() {
+                    ExitCode::from(2)
+                } else {
+                    ExitCode::FAILURE
+                }
             }
         },
         Command::Sign(args) => match sign::run(&args) {

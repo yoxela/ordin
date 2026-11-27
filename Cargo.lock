@@ -639,6 +639,7 @@ dependencies = [
  "ordin-core",
  "ordin-manifest",
  "ordin-pack",
+ "ordin-recipe",
  "ordin-sign",
  "ordin-tree",
  "ordin-version",
@@ -749,6 +750,7 @@ dependencies = [
  "ordin-core",
  "ordin-depexpr",
  "ordin-manifest",
+ "ordin-recipe",
  "ordin-sign",
  "ordin-tree",
  "ordin-version",
@@ -768,6 +770,15 @@ version = "0.1.1"
 [[package]]
 name = "ordin-recipe"
 version = "0.1.1"
+dependencies = [
+ "ordin-core",
+ "ordin-depexpr",
+ "ordin-manifest",
+ "ordin-tree",
+ "ordin-version",
+ "thiserror",
+ "toml",
+]
 
 [[package]]
 name = "ordin-repo"

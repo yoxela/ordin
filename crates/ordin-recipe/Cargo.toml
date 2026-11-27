@@ -11,5 +11,14 @@ publish.workspace = true
 [package.metadata.ordin]
 layer = 0
 
+[dependencies]
+ordin-core = { path = "../ordin-core" }
+ordin-depexpr = { path = "../ordin-depexpr" }
+ordin-manifest = { path = "../ordin-manifest" }
+ordin-tree = { path = "../ordin-tree" }
+ordin-version = { path = "../ordin-version" }
+thiserror.workspace = true
+toml.workspace = true
+
 [lints]
 workspace = true

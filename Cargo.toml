@@ -25,6 +25,9 @@ thiserror = "2.0.21"
 # form, so nothing invalid can be deserialized.
 serde = "1.0.229"
 serde_json = "1.0.154"
+# Recipes (ordin.toml, ORD-121), wrapped by ordin-recipe. Only its
+# spanned document parser: no serde, and its nesting limit kept.
+toml = { version = "1.2.1", default-features = false, features = ["std", "parse"] }
 
 # Hashing (the architecture's Technology choices): BLAKE3 is every Ordin
 # object's identity. Wrapped by ordin-core's Digest.

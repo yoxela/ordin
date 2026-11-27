@@ -22,6 +22,7 @@ ordin-archive = { path = "../ordin-archive" }
 ordin-core = { path = "../ordin-core" }
 ordin-manifest = { path = "../ordin-manifest" }
 ordin-pack = { path = "../ordin-pack" }
+ordin-recipe = { path = "../ordin-recipe" }
 ordin-sign = { path = "../ordin-sign" }
 ordin-tree = { path = "../ordin-tree" }
 ordin-version = { path = "../ordin-version" }

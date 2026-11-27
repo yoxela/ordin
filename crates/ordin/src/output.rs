@@ -67,6 +67,13 @@ pub fn pack_json(report: &Report) -> String {
         ("name", text(&m.name)),
         ("package", text(report.packed.written.package)),
         (
+            "recipe",
+            report
+                .recipe
+                .as_ref()
+                .map_or(Value::Null, |p| text(p.display())),
+        ),
+        (
             "provides",
             Value::Array(m.provides.iter().map(|p| text(&p.atom)).collect()),
         ),
@@ -103,6 +110,9 @@ pub fn pack_text(report: &Report) -> String {
         report.packed.written.package,
         facets.join(", ")
     );
+    if let Some(recipe) = &report.recipe {
+        out.push_str(&format!("recipe {}\n", recipe.display()));
+    }
     if let Some(commit) = m.provenance.as_ref().and_then(|p| p.commit.as_ref()) {
         out.push_str(&format!("commit {commit}\n"));
     }

@@ -15,8 +15,10 @@ use ordin_core::{Arch, Digest, Facet, FilePath, PackageName};
 use ordin_depexpr::{Expr, Requirement};
 use ordin_manifest::spdx;
 use ordin_manifest::{
-    FacetEntry, Kind as PackageKind, License, Manifest, Presentation, Provenance, Provide, State,
+    FacetEntry, Kind as PackageKind, License, Manifest, Migration, Presentation, Provenance,
+    Provide, State, UnitName, Url,
 };
+use ordin_recipe::{Declared, DeclaredState};
 use ordin_sign::SecretKey;
 use ordin_tree::chunk::ChunkParams;
 use ordin_tree::{Kind, TreePath};
@@ -24,9 +26,9 @@ use ordin_version::Version;
 use tempfile::NamedTempFile;
 
 use crate::error::WalkError;
-use crate::facets::{FacetError, FacetNote, classify};
+use crate::facets::{FacetError, FacetNote, FacetOverride, classify};
 use crate::infer::{InferError, InferNote, infer};
-use crate::layout::{LayoutError, LayoutOptions, normalize};
+use crate::layout::{Layout, LayoutError, LayoutOptions, normalize};
 use crate::owners::OwnerOverride;
 use crate::source::RootSource;
 use crate::walk::{self, Warning, walk};
@@ -45,8 +47,14 @@ pub struct PackOptions {
     pub arch: Option<Arch>,
     /// One line about it.
     pub summary: String,
+    /// Longer text about it.
+    pub description: Option<String>,
+    /// Where users go for the software.
+    pub homepage: Option<Url>,
     /// Its SPDX license expression. `NOASSERTION` when nobody has said.
     pub license: String,
+    /// How the license is shown on install.
+    pub presentation: Presentation,
     /// The text of each license ID the expression names, by ID.
     pub license_texts: BTreeMap<String, Vec<u8>>,
     /// Owners other than `root:root`, by install-root path.
@@ -65,6 +73,9 @@ pub struct PackOptions {
     /// The git commit built, if known: its full object name, recorded in
     /// the manifest's provenance.
     pub commit: Option<String>,
+    /// What a recipe declares (rung 1): added to what is inferred, and
+    /// winning over it where both say something about one path.
+    pub declared: Declared,
 }
 
 /// Where [`pack`] writes the package.
@@ -142,6 +153,24 @@ pub enum PackError {
     /// A declared setuid file has neither bit.
     #[error("{0}: declared setuid or setgid, but the file is neither")]
     NotSetuid(TreePath),
+    /// A declared unit's file isn't in the package.
+    #[error(
+        "the unit {unit} is declared, but the package has no {file} in /usr/lib/systemd/system or /usr/lib/systemd/user"
+    )]
+    UnitMissing {
+        /// The unit.
+        unit: UnitName,
+        /// The file it needs: its own, or its template's.
+        file: String,
+    },
+    /// A declared seed's source isn't a file in the package.
+    #[error("the seed for {path} is copied from {from}, which isn't a file in the package")]
+    SeedMissing {
+        /// The state path seeded.
+        path: FilePath,
+        /// Where it would be copied from.
+        from: FilePath,
+    },
     /// A facet's tree breaks a rule, for example by being too large.
     #[error("the tree for facet {facet}")]
     Tree {
@@ -223,13 +252,87 @@ fn license(options: &PackOptions) -> Result<License, PackError> {
     }
     Ok(License {
         spdx: parsed.to_string(),
-        presentation: Presentation::Informational,
+        presentation: options.presentation,
         texts: options
             .license_texts
             .iter()
             .map(|(id, text)| (id.clone(), Digest::blake3(text)))
             .collect(),
     })
+}
+
+/// The unit file a unit needs: its own, or for an instance such as
+/// `getty@tty1.service`, its template's, `getty@.service`.
+fn unit_file(unit: &UnitName) -> String {
+    let name = unit.as_str();
+    match (name.split_once('@'), name.rsplit_once('.')) {
+        (Some((prefix, _)), Some((_, suffix))) => format!("{prefix}@.{suffix}"),
+        _ => name.to_owned(),
+    }
+}
+
+/// Checks that what the recipe declares is in the package: each unit's
+/// file, and each seed's source.
+fn check_declared(declared: &Declared, layout: &Layout) -> Result<(), PackError> {
+    let has = |path: &str, file: bool| {
+        layout
+            .tree
+            .entries()
+            .iter()
+            .any(|e| e.path.as_str() == path && (!file || matches!(e.kind, Kind::File(_))))
+    };
+    for unit in &declared.units {
+        let file = unit_file(&unit.name);
+        let shipped = ["/usr/lib/systemd/system", "/usr/lib/systemd/user"]
+            .iter()
+            .any(|dir| has(&format!("{dir}/{file}"), false));
+        if !shipped {
+            return Err(PackError::UnitMissing {
+                unit: unit.name.clone(),
+                file,
+            });
+        }
+    }
+    for seed in &declared.state.seeds {
+        if !has(seed.from.as_str(), true) {
+            return Err(PackError::SeedMissing {
+                path: seed.path.clone(),
+                from: seed.from.clone(),
+            });
+        }
+    }
+    Ok(())
+}
+
+/// Each of `inferred`, unless `declared` has one at the same path, then
+/// all of `declared`.
+fn merged<T: Clone>(inferred: &[T], declared: &[T], path: impl Fn(&T) -> &FilePath) -> Vec<T> {
+    inferred
+        .iter()
+        .filter(|i| !declared.iter().any(|d| path(d) == path(i)))
+        .chain(declared)
+        .cloned()
+        .collect()
+}
+
+/// The state: what the install root's `var/` shows, with what the recipe
+/// declares winning at the same path.
+fn state(layout: &Layout, declared: &DeclaredState) -> Option<State> {
+    let state = State {
+        version: declared.version,
+        migration: Migration::None,
+        paths: merged(&layout.state_paths, &declared.paths, |p| &p.path),
+        files: merged(&layout.state_files, &declared.files, |f| &f.path),
+        seeds: merged(&layout.seeds, &declared.seeds, |s| &s.path),
+        obsolete: declared.obsolete.clone(),
+        migrations: Vec::new(),
+    };
+    let empty = state.version == 0
+        && state.paths.is_empty()
+        && state.files.is_empty()
+        && state.seeds.is_empty()
+        && state.obsolete.is_empty();
+    (!empty).then_some(state)
 }
 
 /// The setuid bit and the setgid bit of a mode.
@@ -365,7 +468,17 @@ pub fn pack(options: &PackOptions, out: &Output) -> Result<Packed, PackError> {
         }
     };
     let out = out.as_path();
-    let classified = classify(&layout.tree, &[])?;
+    let declared = &options.declared;
+    check_declared(declared, &layout)?;
+    let overrides: Vec<FacetOverride> = declared
+        .facets
+        .iter()
+        .map(|m| FacetOverride {
+            path: m.path.clone(),
+            facet: m.facet.clone(),
+        })
+        .collect();
+    let classified = classify(&layout.tree, &overrides)?;
     let mut facets = BTreeMap::new();
     let mut trees = BTreeMap::new();
     for (facet, built) in classified.facets {
@@ -392,10 +505,14 @@ pub fn pack(options: &PackOptions, out: &Output) -> Result<Packed, PackError> {
         license,
         facets,
     );
+    manifest.description.clone_from(&options.description);
+    manifest.homepage.clone_from(&options.homepage);
+    // Sets: the encoding sorts them and drops what is given twice.
     manifest.requires = inferred
         .requires
         .iter()
         .map(|atom| Expr::Req(Requirement::new(atom.clone())))
+        .chain(declared.requires.iter().cloned())
         .collect();
     manifest.provides = inferred
         .provides
@@ -404,7 +521,13 @@ pub fn pack(options: &PackOptions, out: &Output) -> Result<Packed, PackError> {
             atom: atom.clone(),
             version: None,
         })
+        .chain(declared.provides.iter().cloned())
         .collect();
+    manifest.conflicts.clone_from(&declared.conflicts);
+    manifest.declares.users.clone_from(&declared.users);
+    manifest.declares.groups.clone_from(&declared.groups);
+    manifest.declares.units.clone_from(&declared.units);
+    manifest.settings.clone_from(&declared.settings);
     manifest.declares.config = layout.config.clone();
     manifest.declares.setuid = setuid;
     manifest.provenance = options.commit.clone().map(|commit| Provenance {
@@ -412,19 +535,10 @@ pub fn pack(options: &PackOptions, out: &Output) -> Result<Packed, PackError> {
         sbom: None,
         commit: Some(commit),
     });
-    if !(layout.state_paths.is_empty() && layout.state_files.is_empty() && layout.seeds.is_empty())
-    {
-        manifest.state = Some(State {
-            version: 0,
-            migration: ordin_manifest::Migration::None,
-            paths: layout.state_paths.clone(),
-            files: layout.state_files.clone(),
-            seeds: layout.seeds.clone(),
-            obsolete: Vec::new(),
-            migrations: Vec::new(),
-        });
-    }
-    let identity = Digest::blake3(&manifest.to_canonical_bytes()?);
+    manifest.state = state(&layout, &declared.state);
+    // Read back from its bytes, the manifest is exactly what is signed:
+    // its sets sorted, and what was both inferred and declared once.
+    let (manifest, identity) = Manifest::from_signed_bytes(&manifest.to_canonical_bytes()?)?;
     let signatures = match &options.signer {
         Some(key) => vec![key.sign(&identity)?],
         None => Vec::new(),
