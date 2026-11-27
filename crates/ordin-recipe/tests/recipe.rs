@@ -14,8 +14,8 @@ mod recipe {
         SettingType, SettingValue, StateFile, StatePath, Unit, User,
     };
     use ordin_recipe::{
-        DeclaredState, Error, FacetMove, LicenseFiles, MAX_SIZE, Package, Recipe, RelativePath,
-        parse,
+        Allow, Check, DeclaredState, Error, FacetMove, LicenseFiles, MAX_SIZE, Package, REASON_MAX,
+        Recipe, RelativePath, parse,
     };
 
     const FULL: &str = r#"format = 1
@@ -431,7 +431,7 @@ extra = ["/usr/share/nginx/examples"]
             "sumary = \"x\"\n",
             2,
             1,
-            "a recipe has no key \"sumary\"; expected facets, format, group, license, package, setting, state, unit or user",
+            "a recipe has no key \"sumary\"; expected facets, format, group, license, lint, package, setting, state, unit or user",
         );
         refused(
             "[package]\nsumary = \"x\"\n",
@@ -1053,5 +1053,207 @@ extra = ["/usr/share/nginx/examples"]
         // The longest path accepted.
         let longest = format!("{}/x", "a".repeat(RelativePath::MAX_LEN - 2));
         assert_eq!(longest.parse::<RelativePath>().unwrap().as_str(), longest);
+    }
+
+    #[test]
+    fn lint_allows_are_read_with_their_lines() {
+        let text = "format = 1\n\
+                    [[lint.allow]]\n\
+                    id = \"world-writable\"\n\
+                    reason = \"a shared drop directory\"\n\
+                    paths = [\"/usr/share/foo/drop\", \"/usr/share/foo/spool\"]\n\
+                    \n\
+                    [[lint.allow]]\n\
+                    id = \"world-writable\"\n\
+                    reason = \"another\"\n\
+                    paths = [\"/usr/share/bar\"]\n\
+                    \n\
+                    [[lint.allow]]\n\
+                    id = \"license-unknown\"\n\
+                    reason = \"upstream is clarifying it\"\n";
+        let r = parse(text).unwrap();
+        let path = |p: &str| p.parse().unwrap();
+        assert_eq!(
+            r.lint,
+            [
+                Allow {
+                    check: Check::WorldWritable,
+                    reason: "a shared drop directory".to_owned(),
+                    paths: vec![path("/usr/share/foo/drop"), path("/usr/share/foo/spool")],
+                    line: 2,
+                },
+                Allow {
+                    check: Check::WorldWritable,
+                    reason: "another".to_owned(),
+                    paths: vec![path("/usr/share/bar")],
+                    line: 7,
+                },
+                Allow {
+                    check: Check::LicenseUnknown,
+                    reason: "upstream is clarifying it".to_owned(),
+                    paths: Vec::new(),
+                    line: 12,
+                },
+            ]
+        );
+        // [lint] alone allows nothing.
+        assert!(parse("format = 1\n[lint]\n").unwrap().lint.is_empty());
+        // The longest reason is accepted.
+        let longest = "x".repeat(REASON_MAX);
+        let text =
+            format!("format = 1\n[[lint.allow]]\nid = \"facet-empty\"\nreason = \"{longest}\"\n");
+        assert_eq!(parse(&text).unwrap().lint[0].reason, longest);
+    }
+
+    #[test]
+    fn lint_allows_are_refused_where_they_are_wrong() {
+        let allow = "[[lint.allow]]\n";
+        refused(
+            "[lint]\ndeny = []\n",
+            3,
+            1,
+            "[lint] has no key \"deny\"; expected allow",
+        );
+        refused(
+            "lint = 1\n",
+            2,
+            8,
+            "expected a table for [lint], found an integer",
+        );
+        refused(
+            &format!("{allow}id = \"world-writable\"\nreason = \"x\"\nwhy = \"x\"\n"),
+            5,
+            1,
+            "[[lint.allow]] has no key \"why\"; expected id, paths or reason",
+        );
+        refused(
+            &format!("{allow}reason = \"x\"\n"),
+            2,
+            1,
+            "[[lint.allow]] needs id",
+        );
+        refused(
+            &format!("{allow}id = \"world-writable\"\n"),
+            2,
+            1,
+            "[[lint.allow]] needs reason",
+        );
+        refused(
+            &format!("{allow}id = \"world_writable\"\nreason = \"x\"\n"),
+            3,
+            6,
+            "expected a check: license-unknown, setuid-undeclared, world-writable, \
+             so-private-version, so-bad-name, so-unversioned, so-unneeded, elf-unreadable, \
+             shebang-unusual, interpreter-unknown, facet-empty or facet-misclassified; \
+             found \"world_writable\"",
+        );
+        refused(
+            &format!("{allow}id = 3\nreason = \"x\"\n"),
+            3,
+            6,
+            "expected a string, found an integer",
+        );
+        refused(
+            &format!("{allow}id = \"unused-allow\"\nreason = \"x\"\n"),
+            3,
+            6,
+            "unused-allow can't be allowed; remove the allow that matches nothing",
+        );
+        let reason = |r: &str| format!("{allow}id = \"facet-empty\"\nreason = {r}\n");
+        refused(
+            &reason("\" \\t \""),
+            4,
+            10,
+            "expected a reason: an allow says why the warning is accepted",
+        );
+        refused(
+            &reason("\"two\\nlines\""),
+            4,
+            10,
+            "expected a reason: one line, without control characters",
+        );
+        refused(
+            &reason("\"tab\\there\""),
+            4,
+            10,
+            "without control characters",
+        );
+        refused(
+            &reason(&format!("\"{}\"", "x".repeat(REASON_MAX + 1))),
+            4,
+            10,
+            "expected a reason: at most 200 characters",
+        );
+        refused(&reason("[]"), 4, 10, "expected a string, found an array");
+        let paths =
+            |id: &str, p: &str| format!("{allow}id = \"{id}\"\nreason = \"x\"\npaths = {p}\n");
+        refused(
+            &paths("license-unknown", "[\"/usr/a\"]"),
+            5,
+            9,
+            "license-unknown warnings name no path, so its allow takes no paths",
+        );
+        refused(
+            &paths("world-writable", "[]"),
+            5,
+            9,
+            "expected at least one path; leave paths out to allow it for the whole package",
+        );
+        refused(
+            &paths("world-writable", "\"/usr/a\""),
+            5,
+            9,
+            "expected an array of paths, found a string",
+        );
+        refused(
+            &paths("world-writable", "[\"usr/a\"]"),
+            5,
+            10,
+            "expected an absolute path",
+        );
+        refused(
+            &paths("world-writable", "[\"/usr/a\", \"/usr/a\"]"),
+            5,
+            20,
+            "/usr/a is already allowed for world-writable",
+        );
+        // A path allowed by an earlier entry for the same check, but not
+        // for another check.
+        let two = |first: &str, second: &str| {
+            format!(
+                "{allow}id = \"world-writable\"\nreason = \"x\"\n{first}\n\
+                 {allow}id = \"world-writable\"\nreason = \"y\"\n{second}\n"
+            )
+        };
+        refused(
+            &two("paths = [\"/usr/a\"]", "paths = [\"/usr/b\", \"/usr/a\"]"),
+            9,
+            20,
+            "/usr/a is already allowed for world-writable",
+        );
+        let other = format!(
+            "format = 1\n{allow}id = \"world-writable\"\nreason = \"x\"\npaths = [\"/usr/a\"]\n\
+             {allow}id = \"setuid-undeclared\"\nreason = \"y\"\npaths = [\"/usr/a\"]\n"
+        );
+        assert_eq!(parse(&other).unwrap().lint.len(), 2);
+        // An allow for the whole package is the only one for its check,
+        // whichever comes first.
+        let whole = "world-writable is already allowed at line 2; one allow for the whole \
+                     package is the only one for its check";
+        refused(&two("", ""), 6, 1, whole);
+        refused(&two("paths = [\"/usr/a\"]", ""), 6, 1, whole);
+        refused(&two("", "paths = [\"/usr/a\"]"), 6, 1, whole);
+        // An allow for the whole package of another check is no conflict.
+        let text = format!(
+            "format = 1\n{allow}id = \"world-writable\"\nreason = \"x\"\n\
+             {allow}id = \"setuid-undeclared\"\nreason = \"y\"\n"
+        );
+        assert_eq!(parse(&text).unwrap().lint.len(), 2);
+        refused(
+            "[lint]\nallow = 1\n",
+            3,
+            9,
+            "expected an array of tables, written [[lint.allow]], found an integer",
+        );
     }
 }

@@ -23,8 +23,11 @@ use ordin_manifest::{
 };
 use ordin_tree::TreePath;
 
+mod lint;
 mod probe;
 mod read;
+
+pub use lint::{Allow, Check, REASON_MAX, below};
 
 /// The recipe format this crate reads.
 pub const FORMAT: i64 = 1;
@@ -54,6 +57,8 @@ pub struct Recipe {
     pub license: LicenseFiles,
     /// Everything else, which only a recipe gives.
     pub declared: Declared,
+    /// `[[lint.allow]]`: warnings `ordin lint` accepts on purpose.
+    pub lint: Vec<Allow>,
 }
 
 /// The `[package]` fields that the command line can also give, and

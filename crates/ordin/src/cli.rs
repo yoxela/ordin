@@ -30,6 +30,8 @@ pub enum Command {
     Sign(SignArgs),
     /// Check that a package is intact and signed by a key you trust.
     Verify(VerifyArgs),
+    /// Warn about likely mistakes in a package, before it is published.
+    Lint(LintArgs),
     /// Write a package's files to a new directory, without root.
     Unpack(UnpackArgs),
     /// Manage signing keys.
@@ -117,6 +119,23 @@ pub struct VerifyArgs {
     /// key; without it, no signature is trusted.
     #[arg(long, value_name = "KEY.pub")]
     pub trust: Vec<PathBuf>,
+    /// Print the result as JSON.
+    #[arg(long)]
+    pub json: bool,
+}
+
+/// `ordin lint`.
+#[derive(Debug, Args)]
+pub struct LintArgs {
+    /// The package file.
+    pub file: PathBuf,
+    /// The recipe whose [[lint.allow]] entries accept warnings;
+    /// ./ordin.toml if there is one and this isn't given.
+    #[arg(long, value_name = "FILE", conflicts_with = "no_manifest")]
+    pub manifest: Option<PathBuf>,
+    /// Don't read ./ordin.toml.
+    #[arg(long)]
+    pub no_manifest: bool,
     /// Print the result as JSON.
     #[arg(long)]
     pub json: bool,

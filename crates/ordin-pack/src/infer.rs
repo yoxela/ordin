@@ -11,7 +11,7 @@ use std::io::{self, ErrorKind, Read, Seek, SeekFrom};
 
 use object::read::ReadCache;
 use ordin_archive::Source;
-use ordin_core::{Arch, Atom};
+use ordin_core::{Arch, Atom, FilePath};
 use ordin_tree::{Kind, Tree, TreePath};
 
 use crate::elf::{self, Info, MAGIC, Machine};
@@ -161,6 +161,9 @@ pub struct Inferred {
     pub requires: Vec<Atom>,
     /// What it provides, sorted.
     pub provides: Vec<Atom>,
+    /// Each script and the interpreter its `#!` line names, in path
+    /// order, including interpreters the package ships.
+    pub scripts: Vec<(TreePath, FilePath)>,
     /// Notes, in path order.
     pub notes: Vec<InferNote>,
 }
@@ -383,7 +386,7 @@ where
             }
         }
     }
-    for (_, interpreter) in scripts {
+    for (_, interpreter) in &scripts {
         if tree.get(interpreter.as_str()).is_none() {
             requires.add(format!("file:{interpreter}"));
         }
@@ -393,6 +396,7 @@ where
         arch,
         requires: requires.into_vec(),
         provides: provides.into_vec(),
+        scripts,
         notes,
     })
 }

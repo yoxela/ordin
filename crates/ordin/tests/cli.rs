@@ -2107,4 +2107,244 @@ extra = ["/usr/bin/hello"]
             stderr(&o)
         );
     }
+
+    // ordin lint (ORD-151).
+
+    /// The fixture with likely mistakes, packed with a license as
+    /// `hello.ordin`.
+    fn mistaken() -> Scratch {
+        let dir = fixture();
+        let root = dir.path().join("root");
+        write(&root, "usr/bin/typo", b"#!/usr/bin/pyhton3\n", 0o755);
+        write(&root, "usr/share/hello/open", b"x\n", 0o666);
+        write(&root, "usr/share/hello/\u{202e}odd", b"x\n", 0o666);
+        let o = ordin(
+            dir.path(),
+            &[
+                "pack",
+                "root",
+                "--name",
+                "hello",
+                "--version",
+                "2.12",
+                "--license",
+                "MIT",
+                "--license-file",
+                "MIT=COPYING",
+                "--no-manifest",
+                "-o",
+                "hello.ordin",
+            ],
+        );
+        assert_eq!(o.status.code(), Some(0), "{}", stderr(&o));
+        dir
+    }
+
+    fn lint(dir: &Path, extra: &[&str]) -> (Option<i32>, String, String) {
+        let mut args = vec!["lint", "hello.ordin"];
+        args.extend_from_slice(extra);
+        let o = ordin(dir, &args);
+        (o.status.code(), stdout(&o), stderr(&o))
+    }
+
+    const INTERPRETER: &str = "warning[interpreter-unknown] /usr/bin/typo: its interpreter \
+        /usr/bin/pyhton3 isn't in the package, nor one Ordin knows\n  \
+        hint: check its #! line: a misspelt name, or a path from the build machine, is the \
+        usual cause\n";
+
+    #[test]
+    fn lint_lists_each_warning_and_exits_with_4() {
+        let dir = mistaken();
+        let (code, out, err) = lint(dir.path(), &[]);
+        assert_eq!(code, Some(4), "{err}");
+        assert_eq!(err, "");
+        assert_eq!(
+            out,
+            format!(
+                "lint hello.ordin\n\
+                 warning[world-writable] /usr/share/hello/open: a file anyone can write to \
+                 (mode 0666)\n  hint: take away write permission for others\n\
+                 warning[world-writable] /usr/share/hello/\\u{{202e}}odd: a file anyone can \
+                 write to (mode 0666)\n  hint: take away write permission for others\n\
+                 {INTERPRETER}\
+                 3 warnings\n"
+            )
+        );
+        // A package with nothing to say exits with 0.
+        let dir = packed();
+        let (code, out, _) = lint(dir.path(), &[]);
+        assert_eq!(code, Some(0));
+        assert_eq!(out, "lint hello.ordin\nno warnings\n");
+    }
+
+    #[test]
+    fn the_recipes_allows_accept_warnings() {
+        let dir = mistaken();
+        let d = dir.path();
+        let allow = "format = 1\n\n[[lint.allow]]\nid = \"world-writable\"\n\
+                     reason = \"shared\"\npaths = [\"/usr/share/hello\"]\n";
+        write(d, "ordin.toml", allow.as_bytes(), 0o644);
+        let accepted = |recipe: &str| {
+            format!(
+                "allowed[world-writable] /usr/share/hello/open: a file anyone can write to \
+                 (mode 0666)\n  reason ({recipe}:3): shared\n\
+                 allowed[world-writable] /usr/share/hello/\\u{{202e}}odd: a file anyone can \
+                 write to (mode 0666)\n  reason ({recipe}:3): shared\n"
+            )
+        };
+        let (code, out, _) = lint(d, &[]);
+        assert_eq!(code, Some(4));
+        assert_eq!(
+            out,
+            format!(
+                "lint hello.ordin\nrecipe ordin.toml\n{INTERPRETER}{}1 warning, 2 allowed\n",
+                accepted("ordin.toml")
+            )
+        );
+        // Every warning allowed: nothing is left, so it exits with 0.
+        let all =
+            format!("{allow}\n[[lint.allow]]\nid = \"interpreter-unknown\"\nreason = \"x\"\n");
+        write(d, "sub/recipe.toml", all.as_bytes(), 0o644);
+        let (code, out, _) = lint(d, &["--manifest", "sub/recipe.toml"]);
+        assert_eq!(code, Some(0));
+        assert!(
+            out.starts_with("lint hello.ordin\nrecipe sub/recipe.toml\nallowed[world-writable]"),
+            "{out}"
+        );
+        assert!(out.contains(&accepted("sub/recipe.toml")), "{out}");
+        assert!(out.ends_with("no warnings, 3 allowed\n"), "{out}");
+        // --no-manifest reads none.
+        let (code, out, _) = lint(d, &["--no-manifest"]);
+        assert_eq!(code, Some(4));
+        assert!(out.ends_with("\n3 warnings\n"), "{out}");
+        assert!(!out.contains("recipe"), "{out}");
+    }
+
+    #[test]
+    fn lint_json_gives_every_warning_exactly() {
+        let dir = mistaken();
+        let d = dir.path();
+        let allow = "format = 1\n[[lint.allow]]\nid = \"interpreter-unknown\"\nreason = \"x\"\n";
+        write(d, "ordin.toml", allow.as_bytes(), 0o644);
+        let (code, out, err) = lint(d, &["--json"]);
+        assert_eq!(code, Some(4));
+        assert_eq!(err, "");
+        let v: Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(
+            v,
+            serde_json::json!({
+                "allowed": [{
+                    "hint": "check its #! line: a misspelt name, or a path from the build \
+                             machine, is the usual cause",
+                    "id": "interpreter-unknown",
+                    "line": 2,
+                    "message": "its interpreter /usr/bin/pyhton3 isn't in the package, nor \
+                                one Ordin knows",
+                    "path": "/usr/bin/typo",
+                    "reason": "x",
+                }],
+                "file": "hello.ordin",
+                "recipe": "ordin.toml",
+                "warnings": [
+                    {
+                        "hint": "take away write permission for others",
+                        "id": "world-writable",
+                        "message": "a file anyone can write to (mode 0666)",
+                        "path": "/usr/share/hello/open",
+                    },
+                    {
+                        "hint": "take away write permission for others",
+                        "id": "world-writable",
+                        "message": "a file anyone can write to (mode 0666)",
+                        // Exact in JSON, as the package has it.
+                        "path": "/usr/share/hello/\u{202e}odd",
+                    },
+                ],
+            })
+        );
+        // A warning about no path has a null one, and one with no hint a
+        // null hint.
+        let dir = fixture();
+        let o = ordin(
+            dir.path(),
+            &[
+                "pack",
+                "root",
+                "--name",
+                "hello",
+                "--version",
+                "1",
+                "-o",
+                "hello.ordin",
+            ],
+        );
+        assert_eq!(o.status.code(), Some(0), "{}", stderr(&o));
+        let (code, out, _) = lint(dir.path(), &["--json"]);
+        assert_eq!(code, Some(4));
+        let v: Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(v["recipe"], Value::Null);
+        assert_eq!(v["allowed"], serde_json::json!([]));
+        assert_eq!(v["warnings"][0]["id"], "license-unknown");
+        assert_eq!(v["warnings"][0]["path"], Value::Null);
+    }
+
+    #[test]
+    fn a_corrupt_package_fails_lint_with_3() {
+        let dir = packed();
+        let d = dir.path();
+        let good = fs::read(d.join("hello.ordin")).unwrap();
+        fs::write(d.join("hello.ordin"), &good[..good.len() - 1]).unwrap();
+        let (code, out, err) = lint(d, &[]);
+        assert_eq!(code, Some(3));
+        assert_eq!(out, "");
+        assert_eq!(
+            err,
+            "ordin: error: hello.ordin is corrupt: the archive: the file ends inside it\n"
+        );
+        let (code, out, err) = lint(d, &["--json"]);
+        assert_eq!(code, Some(3));
+        assert_eq!(err, "");
+        let v: Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(v["result"], "corrupt");
+        assert_eq!(
+            v["error"],
+            "hello.ordin is corrupt: the archive: the file ends inside it"
+        );
+    }
+
+    #[test]
+    fn lint_fails_when_it_cant_read() {
+        let dir = packed();
+        let d = dir.path();
+        let o = ordin(d, &["lint", "missing.ordin"]);
+        assert_eq!(o.status.code(), Some(1));
+        assert!(
+            stderr(&o).starts_with("ordin: error: missing.ordin: "),
+            "{}",
+            stderr(&o)
+        );
+        write(d, "ordin.toml", b"format = 1\n[lint]\nallow = 3\n", 0o644);
+        let (code, out, err) = lint(d, &[]);
+        assert_eq!(code, Some(1));
+        assert_eq!(out, "");
+        assert_eq!(
+            err,
+            "ordin: error: ordin.toml:3:9: expected an array of tables, written \
+             [[lint.allow]], found an integer\n"
+        );
+        let (code, out, _) = lint(d, &["--json"]);
+        assert_eq!(code, Some(1));
+        let v: Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(
+            v["error"],
+            "ordin.toml:3:9: expected an array of tables, written [[lint.allow]], found an \
+             integer"
+        );
+        let o = ordin(
+            d,
+            &["lint", "hello.ordin", "--manifest", "x", "--no-manifest"],
+        );
+        assert_eq!(o.status.code(), Some(2));
+        assert!(stderr(&o).starts_with("error: "), "{}", stderr(&o));
+    }
 }

@@ -20,7 +20,10 @@ use ordin_version::Version;
 use toml::Spanned;
 use toml::de::{DeArray, DeTable, DeValue};
 
-use crate::{DeclaredState, Error, FORMAT, FacetMove, LicenseFiles, Recipe, RelativePath};
+use crate::{
+    Allow, Check, DeclaredState, Error, FORMAT, FacetMove, LicenseFiles, REASON_MAX, Recipe,
+    RelativePath,
+};
 
 /// A byte range in the recipe.
 pub(crate) type Span = Range<usize>;
@@ -301,7 +304,7 @@ fn check_version(text: &str, release: &str) -> Result<(), String> {
 }
 
 const TOP: &[&str] = &[
-    "facets", "format", "group", "license", "package", "setting", "state", "unit", "user",
+    "facets", "format", "group", "license", "lint", "package", "setting", "state", "unit", "user",
 ];
 const PACKAGE: &[&str] = &[
     "arch",
@@ -398,6 +401,9 @@ pub(crate) fn recipe(text: &str) -> Result<(Recipe, Locations), Error> {
     }
     if let Some(v) = get(&top, "facets") {
         recipe.declared.facets = facets(&r, v)?;
+    }
+    if let Some(v) = get(&top, "lint") {
+        recipe.lint = lint(&r, v)?;
     }
     Ok((recipe, at))
 }
@@ -734,6 +740,109 @@ fn facets(r: &Reader<'_>, v: &Value<'_>) -> Result<Vec<FacetMove>, Error> {
         }
     }
     Ok(moves)
+}
+
+/// Reads `[lint]`: its `[[lint.allow]]` entries.
+fn lint(r: &Reader<'_>, v: &Value<'_>) -> Result<Vec<Allow>, Error> {
+    let t = r.table(v, "[lint]".to_owned(), &["allow"])?;
+    let Some(v) = get(&t, "allow") else {
+        return Ok(Vec::new());
+    };
+    let mut allows: Vec<Allow> = Vec::new();
+    for (t, _) in r.tables(v, "lint.allow", &["id", "paths", "reason"])? {
+        let check = allowed_check(r, r.need(&t, "id")?)?;
+        let reason = reason(r, r.need(&t, "reason")?)?;
+        let line = position(r.text, t.span.start).0;
+        let mut paths: Vec<TreePath> = Vec::new();
+        if let Some(v) = get(&t, "paths") {
+            if !check.has_paths() {
+                return Err(r.error(
+                    &v.span(),
+                    format!("{check} warnings name no path, so its allow takes no paths"),
+                ));
+            }
+            let items = r.array(v, "paths")?;
+            if items.is_empty() {
+                return Err(r.error(
+                    &v.span(),
+                    "expected at least one path; leave paths out to allow it for the whole package",
+                ));
+            }
+            for item in items.iter() {
+                let path: TreePath = r.parsed(item, "an absolute path")?;
+                let earlier = allows
+                    .iter()
+                    .filter(|a| a.check == check)
+                    .any(|a| a.paths.contains(&path));
+                if earlier || paths.contains(&path) {
+                    return Err(r.error(
+                        &item.span(),
+                        format!("{path} is already allowed for {check}"),
+                    ));
+                }
+                paths.push(path);
+            }
+        }
+        if let Some(earlier) = allows
+            .iter()
+            .find(|a| a.check == check && (a.paths.is_empty() || paths.is_empty()))
+        {
+            return Err(r.error(
+                &t.span,
+                format!(
+                    "{check} is already allowed at line {}; one allow for the whole package \
+                     is the only one for its check",
+                    earlier.line
+                ),
+            ));
+        }
+        allows.push(Allow {
+            check,
+            reason,
+            paths,
+            line,
+        });
+    }
+    Ok(allows)
+}
+
+/// The check an allow names.
+fn allowed_check(r: &Reader<'_>, v: &Value<'_>) -> Result<Check, Error> {
+    let id = r.string(v)?;
+    match Check::from_id(id) {
+        Some(Check::UnusedAllow) => Err(r.error(
+            &v.span(),
+            "unused-allow can't be allowed; remove the allow that matches nothing",
+        )),
+        Some(check) => Ok(check),
+        None => {
+            let ids: Vec<&str> = Check::ALL
+                .into_iter()
+                .filter(|c| *c != Check::UnusedAllow)
+                .map(Check::id)
+                .collect();
+            Err(r.error(
+                &v.span(),
+                format!("expected a check: {}; found {id:?}", one_of(&ids)),
+            ))
+        }
+    }
+}
+
+/// An allow's reason: one line of text.
+fn reason(r: &Reader<'_>, v: &Value<'_>) -> Result<String, Error> {
+    let reason = r.string(v)?;
+    let bad = |why: &str| r.error(&v.span(), format!("expected a reason: {why}"));
+    if reason.trim().is_empty() {
+        return Err(bad("an allow says why the warning is accepted"));
+    }
+    if reason.chars().any(char::is_control) {
+        return Err(bad("one line, without control characters"));
+    }
+    if reason.chars().count() > REASON_MAX {
+        return Err(bad(&format!("at most {REASON_MAX} characters")));
+    }
+    Ok(reason.to_owned())
 }
 
 #[cfg(test)]

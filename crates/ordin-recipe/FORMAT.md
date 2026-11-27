@@ -3,7 +3,7 @@
 
 # The Ordin recipe, `ordin.toml`, format 1
 
-A recipe is what a packager writes for what `ordin pack` can't infer. Rung 1 is the few lines a real package needs on top of its install root: a name, a license, requirements and a unit, for example. This page is the reference for rung 1; rungs 2 and 3 (sources, build steps and hooks) add tables to the same file later.
+A recipe is what a packager writes for what `ordin pack` can't infer. Rung 1 is the few lines a real package needs on top of its install root: a name, a license, requirements and a unit, for example. It also holds the warnings `ordin lint` accepts on purpose. This page is the reference for rung 1; rungs 2 and 3 (sources, build steps and hooks) add tables to the same file later.
 
 ```toml
 format = 1
@@ -23,7 +23,7 @@ name   = "hello.service"
 preset = "enable"
 ```
 
-`ordin pack DIR` reads `./ordin.toml`, in the working directory, if there is one, or the file `--manifest FILE` names; `--no-manifest` reads none. A recipe is never signed. What it says goes into the manifest, and the manifest is signed.
+`ordin pack DIR` and `ordin lint FILE` read `./ordin.toml`, in the working directory, if there is one, or the file `--manifest FILE` names; `--no-manifest` reads none. A recipe is never signed. What it says goes into the manifest, and the manifest is signed.
 
 ## Rules for the whole file
 
@@ -143,3 +143,39 @@ A path is as it is in the package, after `bin/` moves to `/usr/bin` and prefixes
 [facets.dev]
 extra = ["/usr/lib/foo/sdk", "/usr/share/foo/headers/**"]
 ```
+
+## `[[lint.allow]]`
+
+`ordin lint` warns about likely mistakes in a package. An allow accepts one on purpose, and says why. It changes nothing in the package, and `ordin pack` ignores it.
+
+| Key | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `id` | string | required | The check, by its ID (below) |
+| `reason` | string | required | Why the warning is accepted: one line of 1 to 200 characters, without control characters |
+| `paths` | array of strings | the whole package | Paths in the package, each with everything below it |
+
+```toml
+[[lint.allow]]
+id     = "world-writable"
+reason = "a drop directory that every user writes to, with the sticky bit"
+paths  = ["/usr/share/foo/drop"]
+```
+
+- `paths` is only for checks whose warnings name a path. A check's allow for the whole package is its only allow; otherwise a check may have several, each with its own paths and reason, and no path twice.
+- An allow, or one of its paths, that accepts no warning is itself a warning (`unused-allow`), so allows don't outlive what they were for. `unused-allow` can't be allowed.
+
+| ID | Warns about | Paths |
+| --- | --- | --- |
+| `license-unknown` | The license is `NOASSERTION` | no |
+| `setuid-undeclared` | A setuid or setgid file not declared with `--setuid` | yes |
+| `world-writable` | A file, directory, or declared state path or file, that anyone can write to | yes |
+| `so-private-version` | A program needs a private symbol version (`GLIBC_PRIVATE`), which only an exact version of the library's package can promise | yes |
+| `so-bad-name` | A library name or version node an `so:` atom can't hold | yes |
+| `so-unversioned` | An `so:` requirement on a library with no version after `.so` (`so:libfoo.so`) | no |
+| `so-unneeded` | A requirement made only of `so:` atoms, none of whose libraries a program or library in the package needs | no |
+| `elf-unreadable` | A file with the ELF magic that can't be read | yes |
+| `shebang-unusual` | A `#!` line Ordin won't guess about, such as `env` with options | yes |
+| `interpreter-unknown` | A `#!` interpreter that the package doesn't ship and that isn't a known one | yes |
+| `facet-empty` | A facet that holds no files | no |
+| `facet-misclassified` | A file in `runtime` that looks like another facet's: headers, development links, `.la`, `.pc` and CMake files, autoconf macros, man and info pages, documentation, `.debug` files | yes |
+| `unused-allow` | An allow, or one of its paths, that accepted nothing | — |

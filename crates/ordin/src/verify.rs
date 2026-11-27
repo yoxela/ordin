@@ -114,7 +114,7 @@ fn trusted_key(path: &Path) -> Result<PublicKey> {
 
 /// Whether `e` says the file is damaged, rather than that it couldn't be
 /// read.
-fn is_corruption(e: &ReadError) -> bool {
+pub fn is_corruption(e: &ReadError) -> bool {
     !matches!(e.kind(), ReadErrorKind::Io(_) | ReadErrorKind::Output(_))
 }
 
