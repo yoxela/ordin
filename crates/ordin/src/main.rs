@@ -11,9 +11,11 @@
 mod cli;
 mod files;
 mod keys;
+mod lint;
 mod output;
 mod pack;
 mod passphrase;
+mod recipe;
 mod show;
 mod sign;
 mod unpack;
@@ -75,6 +77,25 @@ fn main() -> ExitCode {
                 ExitCode::from(report.verdict().exit_code())
             }
             Ok(Checked::Corrupt(e)) => {
+                if args.json {
+                    output::print(&output::corrupt_json(&e), &[]);
+                } else {
+                    output::print_error(&e);
+                }
+                ExitCode::from(verify::CORRUPT)
+            }
+            Err(e) => fail(&e, args.json),
+        },
+        Command::Lint(args) => match lint::run(&args) {
+            Ok(lint::Outcome::Linted(linted)) => {
+                if args.json {
+                    output::print(&output::lint_json(&linted), &[]);
+                } else {
+                    output::print(&output::lint_text(&linted), &[]);
+                }
+                ExitCode::from(linted.exit_code())
+            }
+            Ok(lint::Outcome::Corrupt(e)) => {
                 if args.json {
                     output::print(&output::corrupt_json(&e), &[]);
                 } else {

@@ -10,12 +10,12 @@ use std::sync::Arc;
 use anyhow::{Context, Result, anyhow, bail};
 use ordin_manifest::Presentation;
 use ordin_pack::{Output, PackError, PackOptions, Packed};
-use ordin_recipe::Recipe;
 use ordin_sign::{PublicKey, SecretKey};
 use ordin_tree::chunk::ChunkParams;
 use ordin_version::Version;
 
 use crate::cli::{PackArgs, VersionFrom};
+use crate::recipe::{self, Used};
 use crate::{files, keys};
 
 /// The largest license text read, in bytes: the most a `.ordin` file
@@ -92,60 +92,6 @@ impl std::fmt::Display for Usage {
 
 impl std::error::Error for Usage {}
 
-/// The recipe read when no --manifest is given.
-pub const DEFAULT_RECIPE: &str = "ordin.toml";
-
-/// A recipe read, and where from.
-#[derive(Debug)]
-pub struct Used {
-    /// The file.
-    pub path: PathBuf,
-    /// What it says.
-    pub recipe: Recipe,
-}
-
-impl Used {
-    /// The directory its paths are relative to.
-    fn dir(&self) -> &Path {
-        match self.path.parent() {
-            Some(dir) if !dir.as_os_str().is_empty() => dir,
-            _ => Path::new("."),
-        }
-    }
-}
-
-/// `path`, if there is anything there. Anything that stops it being
-/// looked at is an error, so a recipe is never skipped because it
-/// couldn't be seen.
-fn default_recipe(path: &Path) -> Result<Option<PathBuf>> {
-    match std::fs::symlink_metadata(path) {
-        Ok(_) => Ok(Some(path.to_path_buf())),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
-        Err(e) => Err(e).with_context(|| path.display().to_string()),
-    }
-}
-
-/// Reads the recipe: --manifest's, or ./ordin.toml if there is one,
-/// unless --no-manifest is given.
-fn read_recipe(args: &PackArgs) -> Result<Option<Used>> {
-    if args.no_manifest {
-        return Ok(None);
-    }
-    let path = match &args.manifest {
-        Some(path) => path.clone(),
-        None => match default_recipe(Path::new(DEFAULT_RECIPE))? {
-            Some(path) => path,
-            None => return Ok(None),
-        },
-    };
-    let max = u64::try_from(ordin_recipe::MAX_SIZE).unwrap_or(u64::MAX);
-    let bytes = files::read_small(&path, max, "a recipe")?;
-    let text = String::from_utf8(bytes)
-        .map_err(|_| anyhow!("{}: a recipe is UTF-8 text", path.display()))?;
-    let recipe = ordin_recipe::parse(&text).map_err(|e| anyhow!("{}:{e}", path.display()))?;
-    Ok(Some(Used { path, recipe }))
-}
-
 /// Adds what to do about an error, where there is something to do.
 fn hint(e: PackError) -> anyhow::Error {
     match &e {
@@ -169,7 +115,7 @@ fn hint(e: PackError) -> anyhow::Error {
 /// helps.
 pub fn run(args: &PackArgs) -> Result<Report> {
     let mut warnings = Vec::new();
-    let used = read_recipe(args)?;
+    let used = recipe::read(args.manifest.as_deref(), args.no_manifest)?;
     let package = used.as_ref().map(|u| &u.recipe.package);
     let from_recipe = |field: fn(&ordin_recipe::Package) -> Option<String>| package.and_then(field);
     let Some(name) = args
@@ -272,22 +218,6 @@ pub fn run(args: &PackArgs) -> Result<Report> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn a_default_recipe_is_skipped_only_when_there_is_none() {
-        let dir = tempfile::tempdir().unwrap();
-        let file = dir.path().join("file");
-        std::fs::write(&file, b"").unwrap();
-        assert_eq!(default_recipe(&file).unwrap(), Some(file.clone()));
-        assert_eq!(default_recipe(&dir.path().join("none")).unwrap(), None);
-        // A path that can't be looked at isn't taken for no recipe.
-        let below = file.join("ordin.toml");
-        let e = default_recipe(&below).unwrap_err();
-        assert_eq!(
-            format!("{e:#}"),
-            format!("{}: Not a directory (os error 20)", below.display())
-        );
-    }
 
     #[test]
     fn the_release_is_appended_to_the_version() {

@@ -12,6 +12,8 @@
 //!   `/usr`, with `etc/` as config defaults and `var/` as state.
 //! - [`classify`] splits the normalized tree into facets by path rules and
 //!   the recipe's overrides.
+//! - [`pack`] runs them all and writes a `.ordin` file.
+//! - [`lint`] reads a `.ordin` file back and warns about likely mistakes.
 //!
 //! Later stories build on the result.
 
@@ -22,6 +24,7 @@ mod facets;
 pub mod git;
 mod infer;
 mod layout;
+mod lint;
 mod owners;
 mod pack;
 mod shebang;
@@ -35,6 +38,10 @@ pub use facets::{
 };
 pub use infer::{InferError, InferNote, Inferred, LIBRARY_DIRS, SKIPPED, infer};
 pub use layout::{Layout, LayoutError, LayoutErrorKind, LayoutOptions, normalize};
+pub use lint::{
+    Accepted, Finding, KNOWN_INTERPRETERS, LintError, LintReport, VERSIONED_INTERPRETERS,
+    known_interpreter, lint,
+};
 pub use owners::OwnerOverride;
 pub use pack::{Output, PackError, PackOptions, Packed, default_file_name, pack};
 pub use source::RootSource;

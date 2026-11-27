@@ -1,6 +1,6 @@
 # ordin-pack
 
-Packaging rungs 0 and 1: scanning a tree, inferring requirements, classifying facets and writing a package. Layer 2 (engine), licensed GPL-3.0-or-later.
+Packaging rungs 0 and 1: scanning a tree, inferring requirements, classifying facets and writing a package, and linting it. Layer 2 (engine), licensed GPL-3.0-or-later.
 
 ## Walking a tree
 
@@ -63,6 +63,7 @@ Missing directories above a moved path are added as `root:root 0755`, and hard l
 - **What the package ships itself** isn't required: a library with that soname, anywhere in the package, meets the need.
 - **Private versions** (nodes containing `PRIVATE`, such as `GLIBC_PRIVATE`) are left out with a note, because only an exact version of the providing package can promise them. If nothing else was needed from that library, the bare atom stays.
 - **Names an atom can't hold:** a version node gives the bare atom and a note; a library name gives a note and no atom.
+- **Scripts:** `Inferred::scripts` lists each script with the interpreter its `#!` line names, including interpreters the package ships, for `lint`.
 - **A file with the ELF magic that can't be read** gives a note and adds nothing.
 
 **The architecture:**
@@ -113,6 +114,15 @@ Missing directories above a moved path are added as `root:root 0755`, and hard l
 - The file goes to a temporary file beside `out`, which is synced, made mode 0644 and renamed over `out`. Then the directory is synced, so `out` is always either the old file or the complete new one.
 - A failed write leaves `out` as it was, and no temporary file behind.
 - An output inside the install root is refused, through symlinks too, so an old package can never be packed into the next one.
+
+## Linting
+
+`lint(&mut reader, &allows)` reads a `.ordin` file back and returns the warnings about likely mistakes, each with its `Check` (`ordin-recipe`) and the path it is about, and those the recipe's allows accept, with their reasons.
+
+- **Read through the archive.** The facet trees are put together into one tree, refused if two facets hold the same path other than as a directory. Requirements are inferred again with `infer`, reading each file through `ordin-archive`, which checks it against its digest; a damaged file stops the lint with the archive's error. A file is copied to an unlinked temporary file only once it starts with the ELF magic; of anything else, only the first 256 bytes are kept.
+- **The checks:** a `NOASSERTION` license; setuid and setgid files the manifest doesn't declare; files, directories and declared state paths and files with the other-write bit; inference's notes (private versions, names an atom can't hold, unreadable ELF files, unusual `#!` lines); interpreters neither in the package nor in `KNOWN_INTERPRETERS` or `VERSIONED_INTERPRETERS`; `so:` requirements on a library ending in `.so`, and requirements made only of `so:` atoms whose libraries nothing in the package needs; facets with no files; and files in `runtime` that look like `dev`, `doc` or `debug` files. A whole directory that looks wrong, such as `/usr/man` or `/usr/lib/cmake`, is one warning.
+- **Order:** warnings come in `Check` order, then by path, so a report is the same every time.
+- **Allows** accept a warning of their check, about one of their paths or below it, or anywhere when they name none. An allow, or one of its paths, that accepts nothing is an `unused-allow` warning.
 
 ## Versions from git
 

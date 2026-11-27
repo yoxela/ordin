@@ -21,7 +21,10 @@ use std::io::Write;
 
 use ordin_core::json::{self, MAX_INT, Value};
 
+use ordin_pack::Finding;
+
 use crate::keys::Generated;
+use crate::lint::Linted;
 use crate::pack::Report;
 use crate::sign::Signed;
 use crate::unpack::Unpacked;
@@ -236,6 +239,87 @@ pub fn unpack_json(u: &Unpacked) -> String {
         ("size", int(u.size)),
         ("symlinks", int(u.symlinks as u64)),
         ("to", text(u.to.display())),
+    ]))
+}
+
+/// A lint warning's first line: its ID, the path it is about, and what
+/// is wrong.
+fn finding_line(label: &str, f: &Finding) -> String {
+    match &f.path {
+        Some(path) => format!("{label}[{}] {path}: {}", f.check, f.message),
+        None => format!("{label}[{}] {}", f.check, f.message),
+    }
+}
+
+/// `ordin lint`'s result for people. Paths and names come from inside
+/// the package, so every line is made safe for a terminal.
+pub fn lint_text(linted: &Linted) -> String {
+    let r = &linted.report;
+    let mut lines = vec![format!("lint {}", linted.file.display())];
+    if let Some(recipe) = &linted.recipe {
+        lines.push(format!("recipe {}", recipe.display()));
+    }
+    for f in &r.warnings {
+        lines.push(finding_line("warning", f));
+        if let Some(hint) = &f.hint {
+            lines.push(format!("  hint: {hint}"));
+        }
+    }
+    let recipe = linted
+        .recipe
+        .as_ref()
+        .map_or_else(|| "the recipe".to_owned(), |p| p.display().to_string());
+    for a in &r.allowed {
+        lines.push(finding_line("allowed", &a.finding));
+        lines.push(format!("  reason ({recipe}:{}): {}", a.line, a.reason));
+    }
+    let warnings = match r.warnings.len() {
+        0 => "no warnings".to_owned(),
+        n => count(n, "warning"),
+    };
+    lines.push(if r.allowed.is_empty() {
+        warnings
+    } else {
+        format!("{warnings}, {} allowed", r.allowed.len())
+    });
+    lines.iter().map(|l| show::safe(l) + "\n").collect()
+}
+
+/// A lint warning as JSON.
+fn finding_json(f: &Finding) -> [(&'static str, Value); 4] {
+    [
+        ("hint", f.hint.as_ref().map_or(Value::Null, text)),
+        ("id", text(f.check)),
+        ("message", text(&f.message)),
+        ("path", f.path.as_ref().map_or(Value::Null, text)),
+    ]
+}
+
+/// `ordin lint`'s result as JSON.
+pub fn lint_json(linted: &Linted) -> String {
+    let r = &linted.report;
+    let warnings = r.warnings.iter().map(|f| object(finding_json(f))).collect();
+    let allowed = r
+        .allowed
+        .iter()
+        .map(|a| {
+            let mut fields = finding_json(&a.finding).to_vec();
+            fields.push(("line", int(a.line as u64)));
+            fields.push(("reason", text(&a.reason)));
+            Value::Object(fields.into_iter().map(|(k, v)| (k.to_owned(), v)).collect())
+        })
+        .collect();
+    json::canonical(&object([
+        ("allowed", Value::Array(allowed)),
+        ("file", text(linted.file.display())),
+        (
+            "recipe",
+            linted
+                .recipe
+                .as_ref()
+                .map_or(Value::Null, |p| text(p.display())),
+        ),
+        ("warnings", Value::Array(warnings)),
     ]))
 }
 

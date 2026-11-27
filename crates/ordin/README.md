@@ -118,6 +118,26 @@ Checks that a package is intact, every byte of it, and that a key you trust sign
 - **It prints** that the file is intact, the package and image digests, each facet's files, chunks and size, and each signature's key, trusted or not. When the package isn't trusted, standard error says why. With `--json`: `facets` (each with `chunks`, `facet`, `files` and `size`), `file`, `image`, `licenses`, `package`, `result` (`trusted`, `unsigned` or `untrusted`) and `signatures` (each with `key` and `trusted`, sorted by key). A corrupt package prints `{"error": "...", "result": "corrupt"}`.
 - **Exit codes**, worst first: 3 if the package is corrupt, 4 if it is intact but not signed, 5 if it is signed only by keys not given with `--trust`, and 0 if a trusted key signed it. 1 means it couldn't be checked: the file can't be read, or a `--trust` file isn't a public key file.
 
+## `ordin lint`
+
+```
+ordin lint FILE [--manifest FILE | --no-manifest] [--json]
+```
+
+Warns about likely mistakes in a package, before it is published. It reads the package without installing it, and infers requirements again from its files, read through the archive, which checks each one it reads against its digest (`ordin verify` checks every byte, and the signatures). An ELF file is copied to an unlinked temporary file while it is read; every other file only has its first 256 bytes kept.
+
+- **The checks** (`crates/ordin-recipe/FORMAT.md` lists them by ID):
+  - a license of `NOASSERTION`
+  - undeclared setuid and setgid files
+  - files, directories and declared state anyone can write to
+  - `so:` requirements that look unusual: private symbol versions, names an atom can't hold, libraries with no version after `.so`, and declared ones nothing in the package needs
+  - ELF files that can't be read
+  - `#!` lines Ordin won't guess about, and interpreters that are neither in the package nor known ones
+  - facets with no files, and files in `runtime` that look like another facet's
+- **Accepting a warning.** The recipe's `[[lint.allow]]` entries accept warnings on purpose, each with a reason and optionally the paths it covers. The recipe is `./ordin.toml` if there is one, or `--manifest FILE`; `--no-manifest` reads none. An allow that accepts nothing is itself a warning.
+- **It prints** each warning as `warning[ID] PATH: what is wrong`, with a hint where there is something to do, then each accepted one with its reason and the recipe line, then a count. Every line is made safe for a terminal. With `--json`: `allowed` (each with `hint`, `id`, `line`, `message`, `path` and `reason`), `file`, `recipe` (the recipe read, or `null`) and `warnings` (each with `hint`, `id`, `message` and `path`, `null` when there is none). A corrupt package prints `{"error": "...", "result": "corrupt"}`.
+- **Exit codes:** 0 if no warning is left, 4 if any is, 3 if the package is corrupt, 1 if it couldn't be linted (the file or the recipe can't be read, or the recipe is wrong).
+
 ## `ordin unpack`
 
 ```
@@ -140,6 +160,6 @@ Writes a package's files to a new directory, without root, to see exactly what i
 | 0 | The command did what it was asked |
 | 1 | It couldn't; the error says why |
 | 2 | The command line is wrong |
-| 3 | `ordin verify`: the package is corrupt |
-| 4 | `ordin verify`: the package is intact but not signed |
+| 3 | `ordin verify` and `ordin lint`: the package is corrupt |
+| 4 | `ordin verify`: the package is intact but not signed. `ordin lint`: warnings are left after the recipe's allows |
 | 5 | `ordin verify`: the package is signed, but by no key given with `--trust` |
