@@ -769,7 +769,10 @@ mod requirements {
             version: "1.0-1".parse().unwrap(),
             arch: None,
             summary: "s".to_owned(),
+            description: None,
+            homepage: None,
             license: "NONE".to_owned(),
+            presentation: ordin_manifest::Presentation::Informational,
             license_texts: BTreeMap::new(),
             owners: Vec::new(),
             setuid: std::collections::BTreeSet::new(),
@@ -781,6 +784,7 @@ mod requirements {
             },
             signer: None,
             commit: None,
+            declared: ordin_recipe::Declared::default(),
         }
     }
 

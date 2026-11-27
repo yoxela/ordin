@@ -136,8 +136,8 @@ mod cli {
         assert!(dir.path().join(file).is_file());
         assert_eq!(
             stderr(&o),
-            "ordin: warning: no --summary was given, so the summary is the package's name\n\
-             ordin: warning: no --license was given, so the license is NOASSERTION\n"
+            "ordin: warning: no summary was given, so the summary is the package's name\n\
+             ordin: warning: no license was given, so the license is NOASSERTION\n"
         );
         let out = stdout(&o);
         let lines: Vec<&str> = out.lines().collect();
@@ -201,8 +201,10 @@ mod cli {
                 .unwrap()
                 .starts_with("blake3:")
         );
-        // Without --version-from git, no commit is known.
+        // Without --version-from git, no commit is known, and without
+        // ordin.toml no recipe is read.
         assert_eq!(v["commit"], Value::Null);
+        assert_eq!(v["recipe"], Value::Null);
         let keys: Vec<&String> = v.as_object().unwrap().keys().collect();
         assert_eq!(
             keys,
@@ -216,6 +218,7 @@ mod cli {
                 "name",
                 "package",
                 "provides",
+                "recipe",
                 "requires",
                 "signatures",
                 "size",
@@ -305,12 +308,13 @@ mod cli {
         let cases: &[(&[&str], &str)] = &[
             (
                 &["--license", "MIT"],
-                "ordin: error: the license MIT has no text; give it with --license-file MIT=PATH\n",
+                "ordin: error: the license MIT has no text; give it with --license-file MIT=PATH, \
+                 or in the recipe's [license] files\n",
             ),
             (
                 &["--license", "NONE", "--license-file", "MIT=COPYING"],
                 "ordin: error: a text was given for MIT, which the license NONE doesn't name; \
-                 add MIT to --license, or drop its --license-file\n",
+                 add MIT to the license, or drop its text\n",
             ),
             (
                 &[
@@ -485,7 +489,7 @@ mod cli {
         assert_eq!(stderr(&o), "");
         assert_eq!(
             stdout(&o),
-            r#"{"error":"the license MIT has no text; give it with --license-file MIT=PATH"}"#
+            r#"{"error":"the license MIT has no text; give it with --license-file MIT=PATH, or in the recipe's [license] files"}"#
         );
     }
 
@@ -493,8 +497,7 @@ mod cli {
     fn a_wrong_command_line_exits_with_2() {
         let dir = fixture();
         for args in [
-            &["pack", "root", "--version", "2.12"][..],
-            &["pack", "root", "--name", "Hello", "--version", "2.12"],
+            &["pack", "root", "--name", "Hello", "--version", "2.12"][..],
             &[
                 "pack",
                 "root",
@@ -1712,7 +1715,11 @@ mod cli {
         assert!(stderr(&o).contains("cannot be used with"), "{}", stderr(&o));
         let o = ordin_in(d, &["pack", "root", "--name", "hello"], &[]);
         assert_eq!(o.status.code(), Some(2));
-        assert!(stderr(&o).contains("--version <VERSION>"), "{}", stderr(&o));
+        assert_eq!(
+            stderr(&o),
+            "ordin: error: the package has no version: give --version or --version-from git, \
+             or version in the recipe's [package]\n"
+        );
         let o = ordin_in(
             d,
             &["pack", "root", "--name", "hello", "--version-from", "svn"],
@@ -1756,6 +1763,348 @@ mod cli {
             stderr(&o).lines().last().unwrap(),
             "ordin: error: making the version from git: can't run git: No such file or \
              directory (os error 2)"
+        );
+    }
+
+    // Recipes (ORD-121).
+
+    const RECIPE: &str = r#"format = 1
+
+[package]
+name = "hello"
+version = "2.12"
+release = 2
+summary = "Says hello"
+description = "Says hello, politely."
+license = "MIT"
+requires = ["cap:greeter"]
+
+[license]
+presentation = "accept"
+files = { MIT = "legal/COPYING" }
+
+[[user]]
+name = "hello"
+
+[facets.doc]
+extra = ["/usr/bin/hello"]
+"#;
+
+    /// The fixture with `ordin.toml` beside its root, and the license
+    /// text the recipe names.
+    fn with_recipe(recipe: &str) -> Scratch {
+        let dir = fixture();
+        write(dir.path(), "ordin.toml", recipe.as_bytes(), 0o644);
+        write(
+            dir.path(),
+            "legal/COPYING",
+            b"MIT License, from the recipe\n",
+            0o644,
+        );
+        dir
+    }
+
+    #[test]
+    fn a_recipe_in_the_working_directory_is_read() {
+        let dir = with_recipe(RECIPE);
+        let d = dir.path();
+        let o = ordin(d, &["pack", "root"]);
+        assert_eq!(o.status.code(), Some(0), "{}", stderr(&o));
+        // Everything needed was given, so nothing is warned about.
+        assert_eq!(stderr(&o), "");
+        let file = "hello-2.12-2.noarch.ordin";
+        assert!(
+            stdout(&o).starts_with(&format!("wrote {file} (")),
+            "{}",
+            stdout(&o)
+        );
+        assert!(
+            stdout(&o).contains("\nrecipe ordin.toml\n"),
+            "{}",
+            stdout(&o)
+        );
+        let m = &show_json(d, file)["manifest"];
+        assert_eq!(m["summary"], "Says hello");
+        assert_eq!(m["description"], "Says hello, politely.");
+        assert_eq!(m["license"]["spdx"], "MIT");
+        assert_eq!(m["license"]["presentation"], "accept");
+        assert!(
+            m["license"]["texts"]["MIT"]
+                .as_str()
+                .unwrap()
+                .starts_with("blake3:")
+        );
+        assert_eq!(
+            m["requires"],
+            serde_json::json!(["cap:greeter", "file:/usr/bin/sh"])
+        );
+        assert_eq!(
+            m["declares"]["users"],
+            serde_json::json!([{"name": "hello"}])
+        );
+        // The program moved to doc, beside the README: the runtime facet
+        // has nothing left.
+        let program = b"#!/bin/sh\necho hello\n".len() + b"Says hello.\n".len();
+        assert_eq!(m["facets"]["doc"]["size"], program);
+        assert_eq!(m["facets"]["runtime"]["size"], 0);
+        // JSON names the recipe too.
+        let o = ordin(d, &["pack", "root", "-o", "again.ordin", "--json"]);
+        assert_eq!(o.status.code(), Some(0), "{}", stderr(&o));
+        let v: Value = serde_json::from_str(&stdout(&o)).unwrap();
+        assert_eq!(v["recipe"], "ordin.toml");
+        assert_eq!(
+            v["requires"],
+            serde_json::json!(["cap:greeter", "file:/usr/bin/sh"])
+        );
+    }
+
+    #[test]
+    fn flags_win_over_the_recipe() {
+        let dir = with_recipe(RECIPE);
+        let d = dir.path();
+        write(d, "APACHE", b"Apache License\n", 0o644);
+        let flags = [
+            "--name",
+            "hi",
+            "--version",
+            "3.0",
+            "--release",
+            "5",
+            "--summary",
+            "Says hi",
+            "--arch",
+            "x86_64",
+            "--license",
+            "MIT OR Apache-2.0",
+            "--license-file",
+            "Apache-2.0=APACHE",
+            "--license-file",
+            "MIT=COPYING",
+        ];
+        let o = ordin(d, &[&["pack", "root"][..], &flags].concat());
+        assert_eq!(o.status.code(), Some(0), "{}", stderr(&o));
+        let m = &show_json(d, "hi-3.0-5.x86_64.ordin")["manifest"];
+        assert_eq!(m["summary"], "Says hi");
+        assert_eq!(m["license"]["spdx"], "MIT OR Apache-2.0");
+        // What the flags don't give still comes from the recipe.
+        assert_eq!(m["license"]["presentation"], "accept");
+        assert_eq!(m["description"], "Says hello, politely.");
+        // --license-file replaced the recipe's MIT text: it is the text
+        // the flags alone give, not the recipe's.
+        let none = ordin(
+            d,
+            &[
+                &["pack", "root", "--no-manifest", "-o", "flags.ordin"][..],
+                &flags,
+            ]
+            .concat(),
+        );
+        assert_eq!(none.status.code(), Some(0), "{}", stderr(&none));
+        let alone = &show_json(d, "flags.ordin")["manifest"];
+        assert_eq!(m["license"]["texts"], alone["license"]["texts"]);
+        let o = ordin(d, &["pack", "root", "-o", "recipe.ordin"]);
+        assert_eq!(o.status.code(), Some(0), "{}", stderr(&o));
+        let recipe = &show_json(d, "recipe.ordin")["manifest"];
+        assert_ne!(
+            recipe["license"]["texts"]["MIT"],
+            m["license"]["texts"]["MIT"]
+        );
+        // --no-manifest read nothing.
+        assert!(alone["description"].is_null());
+        assert!(alone["declares"].is_null());
+        assert!(!stdout(&none).contains("recipe"), "{}", stdout(&none));
+    }
+
+    #[test]
+    fn the_recipe_can_be_named_and_its_paths_are_beside_it() {
+        let dir = fixture();
+        let d = dir.path();
+        let recipe = RECIPE.replace("legal/COPYING", "COPYING");
+        write(d, "pkg/hello.toml", recipe.as_bytes(), 0o644);
+        write(d, "pkg/COPYING", b"MIT License, beside the recipe\n", 0o644);
+        let o = ordin(d, &["pack", "root", "--manifest", "pkg/hello.toml"]);
+        assert_eq!(o.status.code(), Some(0), "{}", stderr(&o));
+        assert!(
+            stdout(&o).contains("\nrecipe pkg/hello.toml\n"),
+            "{}",
+            stdout(&o)
+        );
+        // The same text through --license-file gives the same package.
+        let o = ordin(
+            d,
+            &[
+                "pack",
+                "root",
+                "--manifest",
+                "pkg/hello.toml",
+                "--license-file",
+                "MIT=pkg/COPYING",
+                "-o",
+                "same.ordin",
+            ],
+        );
+        assert_eq!(o.status.code(), Some(0), "{}", stderr(&o));
+        assert_eq!(
+            show_json(d, "same.ordin")["package"],
+            show_json(d, "hello-2.12-2.noarch.ordin")["package"]
+        );
+    }
+
+    #[test]
+    fn without_a_name_or_a_version_the_command_line_is_wrong() {
+        let dir = fixture();
+        let d = dir.path();
+        for (args, why) in [
+            (
+                &["pack", "root", "--version", "2.12"][..],
+                "the package has no name: give --name, or name in the recipe's [package]",
+            ),
+            (
+                &["pack", "root", "--name", "hello"],
+                "the package has no version: give --version or --version-from git, \
+                 or version in the recipe's [package]",
+            ),
+        ] {
+            let o = ordin(d, args);
+            assert_eq!(o.status.code(), Some(2), "{args:?}");
+            assert_eq!(stderr(&o), format!("ordin: error: {why}\n"));
+            let o = ordin(d, &[args, &["--json"]].concat());
+            assert_eq!(o.status.code(), Some(2), "{args:?}");
+            let v: Value = serde_json::from_str(&stdout(&o)).unwrap();
+            assert_eq!(v["error"], why);
+        }
+        // A recipe without them doesn't help; --no-manifest ignores one
+        // that would.
+        write(d, "ordin.toml", b"format = 1\n", 0o644);
+        assert_eq!(
+            ordin(d, &["pack", "root", "--version", "1"]).status.code(),
+            Some(2)
+        );
+        write(
+            d,
+            "named.toml",
+            b"format = 1\n[package]\nname = \"hello\"\nversion = \"1\"\n",
+            0o644,
+        );
+        let o = ordin(
+            d,
+            &["pack", "root", "--manifest", "named.toml", "--no-manifest"],
+        );
+        assert_eq!(o.status.code(), Some(2));
+        assert!(stderr(&o).contains("cannot be used with"), "{}", stderr(&o));
+        fs::rename(d.join("named.toml"), d.join("ordin.toml")).unwrap();
+        assert_eq!(ordin(d, &["pack", "root"]).status.code(), Some(0));
+        let o = ordin(d, &["pack", "root", "--no-manifest", "-o", "x.ordin"]);
+        assert_eq!(o.status.code(), Some(2));
+    }
+
+    #[test]
+    fn a_recipe_says_where_it_is_wrong() {
+        let dir = fixture();
+        let d = dir.path();
+        let broken = "format = 1\n[package]\nname = \"Hello\"\n";
+        write(d, "ordin.toml", broken.as_bytes(), 0o644);
+        let o = ordin(d, &["pack", "root", "--version", "1"]);
+        assert_eq!(o.status.code(), Some(1));
+        let line = stderr(&o);
+        assert!(
+            line.starts_with("ordin: error: ordin.toml:3:8: expected a package name: "),
+            "{line}"
+        );
+        let o = ordin(d, &["pack", "root", "--version", "1", "--json"]);
+        let v: Value = serde_json::from_str(&stdout(&o)).unwrap();
+        assert!(
+            v["error"].as_str().unwrap().starts_with("ordin.toml:3:8: "),
+            "{v}"
+        );
+        // What a recipe says is made safe for a terminal.
+        write(
+            d,
+            "ordin.toml",
+            b"format = 1\n[package]\nname = \"a\\u001b[31m\"\n",
+            0o644,
+        );
+        let line = stderr(&ordin(d, &["pack", "root", "--version", "1"]));
+        assert!(line.contains("\\u{1b}"), "{line}");
+        assert!(!line.contains('\x1b'), "{line}");
+        // Not UTF-8, not a file, not there.
+        write(d, "ordin.toml", b"format = 1\n# \xff\n", 0o644);
+        assert_eq!(
+            stderr(&ordin(d, &["pack", "root", "--version", "1"])),
+            "ordin: error: ordin.toml: a recipe is UTF-8 text\n"
+        );
+        fs::remove_file(d.join("ordin.toml")).unwrap();
+        fs::create_dir(d.join("ordin.toml")).unwrap();
+        assert_eq!(
+            stderr(&ordin(d, &["pack", "root", "--version", "1"])),
+            "ordin: error: ordin.toml: a recipe must be a regular file\n"
+        );
+        assert_eq!(
+            stderr(&ordin(d, &["pack", "root", "--manifest", "missing.toml"])),
+            "ordin: error: missing.toml: No such file or directory (os error 2)\n"
+        );
+        // A recipe that can't be looked at at all.
+        fs::remove_dir(d.join("ordin.toml")).unwrap();
+        std::os::unix::fs::symlink("ordin.toml", d.join("ordin.toml")).unwrap();
+        let line = stderr(&ordin(d, &["pack", "root", "--version", "1"]));
+        assert!(line.starts_with("ordin: error: ordin.toml: "), "{line}");
+    }
+
+    #[test]
+    fn license_files_stay_below_the_recipes_directory() {
+        let dir = with_recipe(RECIPE);
+        let d = dir.path();
+        let at = |files: &str| {
+            let recipe = RECIPE.replace("files = { MIT = \"legal/COPYING\" }", files);
+            fs::write(d.join("ordin.toml"), recipe).unwrap();
+            stderr(&ordin(d, &["pack", "root"]))
+        };
+        std::os::unix::fs::symlink("legal/COPYING", d.join("link")).unwrap();
+        assert_eq!(
+            at("files = { MIT = \"link\" }"),
+            "ordin: error: link: a license text can't be reached through a symlink\n"
+        );
+        std::os::unix::fs::symlink("legal", d.join("via")).unwrap();
+        assert_eq!(
+            at("files = { MIT = \"via/COPYING\" }"),
+            "ordin: error: via/COPYING: a license text can't be reached through a symlink\n"
+        );
+        assert_eq!(
+            at("files = { MIT = \"legal\" }"),
+            "ordin: error: legal: a license text must be a regular file\n"
+        );
+        rustix::fs::mknodat(
+            rustix::fs::CWD,
+            d.join("fifo"),
+            rustix::fs::FileType::Fifo,
+            rustix::fs::Mode::from_raw_mode(0o644),
+            0,
+        )
+        .unwrap();
+        assert_eq!(
+            at("files = { MIT = \"fifo\" }"),
+            "ordin: error: fifo: a license text must be a regular file\n"
+        );
+        assert_eq!(
+            at("files = { MIT = \"legal/missing\" }"),
+            "ordin: error: legal/missing: No such file or directory (os error 2)\n"
+        );
+        assert_eq!(
+            at("files = { MIT = \"nowhere/COPYING\" }"),
+            "ordin: error: nowhere/COPYING: No such file or directory (os error 2)\n"
+        );
+        let up = at("files = { MIT = \"../COPYING\" }");
+        assert!(
+            up.starts_with("ordin: error: ordin.toml:14:17: expected a path relative to the recipe's directory: "),
+            "{up}"
+        );
+        // A recipe named elsewhere: its paths are below its own
+        // directory, which must be there.
+        let o = ordin(d, &["pack", "root", "--manifest", "legal/COPYING/x.toml"]);
+        assert!(
+            stderr(&o).starts_with("ordin: error: legal/COPYING/x.toml: "),
+            "{}",
+            stderr(&o)
         );
     }
 }

@@ -9,6 +9,8 @@ use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::path::Path;
 
 use anyhow::{Context, Result, bail};
+use ordin_recipe::RelativePath;
+use rustix::fs::{self, AtFlags, FileType, Mode, OFlags};
 
 /// Opens `path` for reading if it is a regular file, and says `refused`
 /// otherwise. A FIFO or a device is refused before it is opened, so it
@@ -43,6 +45,75 @@ fn read_at_most(file: &File, path: &Path, max: u64, what: &str) -> Result<Vec<u8
 pub fn read_small(path: &Path, max: u64, what: &str) -> Result<Vec<u8>> {
     let file = open_regular(path, &format!("{what} must be a regular file"))?;
     read_at_most(&file, path, max, what)
+}
+
+/// How [`read_beneath`] opens the directory it starts from.
+const OPEN_TOP: OFlags = OFlags::RDONLY
+    .union(OFlags::DIRECTORY)
+    .union(OFlags::CLOEXEC);
+
+/// How it opens each directory below that: never through a symlink.
+const OPEN_BELOW: OFlags = OPEN_TOP.union(OFlags::NOFOLLOW);
+
+/// How it opens the file: never through a symlink, and without blocking
+/// or taking a terminal, in case it was replaced since it was checked.
+const OPEN_FILE: OFlags = OFlags::RDONLY
+    .union(OFlags::NOFOLLOW)
+    .union(OFlags::NONBLOCK)
+    .union(OFlags::NOCTTY)
+    .union(OFlags::CLOEXEC);
+
+/// Reads a regular file of at most `max` bytes at `path` below `dir`,
+/// without going through a symlink, so a recipe can't name a file outside
+/// its own directory. `what` names it in errors.
+pub fn read_beneath(dir: &Path, path: &RelativePath, max: u64, what: &str) -> Result<Vec<u8>> {
+    // Below the working directory, the path as the recipe wrote it.
+    let shown = if dir == Path::new(".") {
+        Path::new(path.as_str()).to_path_buf()
+    } else {
+        dir.join(path.as_str())
+    };
+    let context = || shown.display().to_string();
+    let mut at =
+        fs::open(dir, OPEN_TOP, Mode::empty()).with_context(|| dir.display().to_string())?;
+    let (parents, last) = match path.as_str().rsplit_once('/') {
+        Some((parents, last)) => (parents.split('/').collect(), last),
+        None => (Vec::new(), path.as_str()),
+    };
+    let refuse = |kind: FileType| -> Result<()> {
+        if kind == FileType::Symlink {
+            bail!(
+                "{}: {what} can't be reached through a symlink",
+                shown.display()
+            );
+        }
+        Ok(())
+    };
+    for name in parents {
+        refuse(FileType::from_raw_mode(
+            fs::statat(&at, name, AtFlags::SYMLINK_NOFOLLOW)
+                .with_context(context)?
+                .st_mode,
+        ))?;
+        at = fs::openat(&at, name, OPEN_BELOW, Mode::empty()).with_context(context)?;
+    }
+    // A FIFO or a device is refused before it is opened, so it can't make
+    // the command wait, and after, in case it was replaced in between.
+    let kind = FileType::from_raw_mode(
+        fs::statat(&at, last, AtFlags::SYMLINK_NOFOLLOW)
+            .with_context(context)?
+            .st_mode,
+    );
+    refuse(kind)?;
+    if kind != FileType::RegularFile {
+        bail!("{}: {what} must be a regular file", shown.display());
+    }
+    let fd = fs::openat(&at, last, OPEN_FILE, Mode::empty()).with_context(context)?;
+    let file = File::from(fd);
+    if !file.metadata().with_context(context)?.is_file() {
+        bail!("{}: {what} must be a regular file", shown.display());
+    }
+    read_at_most(&file, &shown, max, what)
 }
 
 /// Reads a secret key file of at most `max` bytes, refusing one that

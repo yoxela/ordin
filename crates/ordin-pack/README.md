@@ -79,7 +79,7 @@ Missing directories above a moved path are added as `root:root 0755`, and hard l
 
 ## Packing
 
-`pack(&options, out)` is rung 0 in one call: an install root becomes a `.ordin` file.
+`pack(&options, out)` is rungs 0 and 1 in one call: an install root, with what a recipe declares, becomes a `.ordin` file.
 
 **The steps:**
 1. walk the install root
@@ -93,6 +93,14 @@ Missing directories above a moved path are added as `root:root 0755`, and hard l
 - **Facets:** every facet is installed by default, except `debug`.
 - **Config, state and seeds** come from the layout.
 - **Setuid files:** each path in `options.setuid` becomes a `setuid` declaration at the place the layout moved it to. A declared path must be a setuid or setgid file in the package.
+- **What a recipe declares** (`options.declared`, from `ordin-recipe`):
+  - Requirements and provides are added to the inferred ones, and the manifest records each once.
+  - Conflicts, users, groups, units and settings are taken as declared.
+  - A declared state path, file or seed wins over an inferred one at the same path, and is added otherwise; the state version and obsolete paths are the recipe's.
+  - Each facet move becomes a classification override.
+  - Each unit's file must be in the package, under `/usr/lib/systemd/system/` or `/usr/lib/systemd/user/`, or its template's for an instance (`getty@.service` for `getty@tty1.service`). Each seed's source must be a regular file in the package.
+  - `options.description`, `options.homepage` and `options.presentation` go into the manifest as given.
+- **`Packed::manifest`** is the manifest read back from its signed bytes, so it is exactly what was signed: sets sorted, and without duplicates.
 
 **Licenses:** `options.license` is an SPDX expression, and every ID in it needs a text in `options.license_texts`. `NOASSERTION` and `NONE` need none.
 

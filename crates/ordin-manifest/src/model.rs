@@ -414,6 +414,26 @@ impl std::fmt::Display for Provide {
     }
 }
 
+impl std::str::FromStr for Provide {
+    type Err = String;
+
+    /// Reads `atom` or `atom = version`, in any spacing around the `=`.
+    fn from_str(text: &str) -> Result<Self, String> {
+        let (atom, version) = match text.split_once('=') {
+            Some((a, ver)) => (a.trim(), Some(ver.trim())),
+            None => (text, None),
+        };
+        let atom: Atom = atom.parse().map_err(|e: ordin_core::Error| e.to_string())?;
+        let version = version
+            .map(|v| v.parse::<Version>().map_err(|e| e.to_string()))
+            .transpose()?;
+        if version.is_some() && !matches!(atom, Atom::Package(_) | Atom::Cap(_)) {
+            return Err("only package and cap: atoms can provide a version".into());
+        }
+        Ok(Self { atom, version })
+    }
+}
+
 /// Declarations.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Declares {
@@ -479,6 +499,39 @@ pub struct Condition {
     pub setting: Id,
     /// The value it must have; `None` means a `bool` setting is true.
     pub value: Option<String>,
+}
+
+impl std::fmt::Display for Condition {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match &self.value {
+            Some(v) => write!(f, "setting.{} = {v}", self.setting),
+            None => write!(f, "setting.{}", self.setting),
+        }
+    }
+}
+
+impl std::str::FromStr for Condition {
+    type Err = String;
+
+    /// Reads `setting.<name>` or `setting.<name> = <value>`, in any
+    /// spacing around the `=`.
+    fn from_str(text: &str) -> Result<Self, String> {
+        let rest = text
+            .strip_prefix("setting.")
+            .ok_or("a condition is setting.<name> or setting.<name> = <value>")?;
+        let (name, value) = match rest.split_once('=') {
+            Some((n, val)) => (n.trim(), Some(val.trim().to_owned())),
+            None => (rest, None),
+        };
+        let setting: Id = name.parse()?;
+        if let Some(val) = &value {
+            crate::text::printable_ascii(val, "a condition value")?;
+            if val.is_empty() {
+                return Err("a condition value can't be empty".into());
+            }
+        }
+        Ok(Self { setting, value })
+    }
 }
 
 /// A config default.
