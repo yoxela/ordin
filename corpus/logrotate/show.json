@@ -1,0 +1,93 @@
+{
+  "file": "logrotate.ordin",
+  "image": "sha256:3a284ce3b8e1f2958718dff9379569707d072ac31a0090c24206f1fcbcb0e924",
+  "manifest": {
+    "arch": "x86_64",
+    "declares": {
+      "config": [
+        {
+          "default": "/usr/share/ordin/defaults/logrotate/cron.daily/logrotate",
+          "merge": "three-way",
+          "target": "/etc/cron.daily/logrotate"
+        },
+        {
+          "default": "/usr/share/ordin/defaults/logrotate/logrotate.conf",
+          "merge": "three-way",
+          "target": "/etc/logrotate.conf"
+        },
+        {
+          "default": "/usr/share/ordin/defaults/logrotate/logrotate.d/btmp",
+          "merge": "three-way",
+          "target": "/etc/logrotate.d/btmp"
+        },
+        {
+          "default": "/usr/share/ordin/defaults/logrotate/logrotate.d/wtmp",
+          "merge": "three-way",
+          "target": "/etc/logrotate.d/wtmp"
+        }
+      ],
+      "units": [
+        {
+          "name": "logrotate.timer",
+          "preset": "enable"
+        }
+      ]
+    },
+    "facets": {
+      "doc": {
+        "size": 25929,
+        "tree": "blake3:0d0baa52b60a3d154799188f011d26f32f90564dc80b5358a5a65d9b460cfb17"
+      },
+      "runtime": {
+        "size": 94640,
+        "tree": "blake3:70e0f82765d75708e02cb3f0330add58da4935e14a63d4eff1cf039bb272a36f"
+      }
+    },
+    "homepage": "https://github.com/logrotate/logrotate",
+    "kind": "base",
+    "license": {
+      "spdx": "GPL-2.0-only AND BSD-3-Clause",
+      "texts": {
+        "BSD-3-Clause": "blake3:e0386f90e27603ab8fc3ea45eadee9069080589210d135158bbd213c1bd729b3",
+        "GPL-2.0-only": "blake3:e0386f90e27603ab8fc3ea45eadee9069080589210d135158bbd213c1bd729b3"
+      }
+    },
+    "name": "logrotate",
+    "ordin": 1,
+    "requires": [
+      "file:/usr/bin/sh",
+      "so:libacl.so.1@ACL_1.0",
+      "so:libc.so.6@GLIBC_2.14",
+      "so:libc.so.6@GLIBC_2.17",
+      "so:libc.so.6@GLIBC_2.2.5",
+      "so:libc.so.6@GLIBC_2.26",
+      "so:libc.so.6@GLIBC_2.27",
+      "so:libc.so.6@GLIBC_2.3",
+      "so:libc.so.6@GLIBC_2.3.4",
+      "so:libc.so.6@GLIBC_2.33",
+      "so:libc.so.6@GLIBC_2.34",
+      "so:libc.so.6@GLIBC_2.38",
+      "so:libc.so.6@GLIBC_2.4",
+      "so:libc.so.6@GLIBC_2.6",
+      "so:libc.so.6@GLIBC_2.7",
+      "so:libc.so.6@GLIBC_2.8",
+      "so:libpopt.so.0@LIBPOPT_0",
+      "so:libselinux.so.1@LIBSELINUX_1.0"
+    ],
+    "state": {
+      "paths": [
+        {
+          "class": "data",
+          "path": "/var/lib/logrotate"
+        }
+      ]
+    },
+    "summary": "Rotates, compresses and removes log files",
+    "version": {
+      "release": "1",
+      "upstream": "3.22.0"
+    }
+  },
+  "package": "blake3:9a9ee6b49c97aa0aaef5703fc457ea40976636fc194ba1444ac87a37e6dc4f93",
+  "signatures": []
+}

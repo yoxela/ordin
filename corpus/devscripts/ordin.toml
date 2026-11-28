@@ -1,0 +1,14 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-FileCopyrightText: 2026 The Ordin Authors
+#
+# The recipe for a corpus package (ORD-152); corpus/corpus.toml says where
+# its files come from, and the license texts are given with --license-file.
+
+format = 1
+
+[package]
+name     = "devscripts"
+version  = "2.25.15"
+summary  = "Scripts that make a Debian package maintainer's life easier"
+homepage = "https://salsa.debian.org/debian/devscripts"
+license  = "GPL-2.0-or-later AND GPL-2.0-only AND GPL-3.0-or-later AND GPL-3.0-only AND MIT AND ISC AND Artistic-1.0 AND Artistic-2.0 AND (Artistic-1.0-Perl OR GPL-1.0-or-later) AND LicenseRef-Public-Domain"

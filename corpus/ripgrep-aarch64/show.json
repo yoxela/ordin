@@ -1,0 +1,35 @@
+{
+  "file": "ripgrep-aarch64.ordin",
+  "image": "sha256:cbb5b8a7ed3a25b4f57396e2d0dec982329692febe5f9858f87d3b98c65fd441",
+  "manifest": {
+    "arch": "aarch64",
+    "facets": {
+      "doc": {
+        "size": 295041,
+        "tree": "blake3:b94e8e48c6291bbf68b731688448ced8122bfbaadbb6ef007e170853c43d199a"
+      },
+      "runtime": {
+        "size": 4440533,
+        "tree": "blake3:0c92c05fd9f0dd6d84925118978aca86d1b8fd004075a48d7d2f47bd9f789d3a"
+      }
+    },
+    "homepage": "https://github.com/BurntSushi/ripgrep",
+    "kind": "base",
+    "license": {
+      "spdx": "Unlicense OR MIT",
+      "texts": {
+        "MIT": "blake3:fbeb393c6fa776ec263e6bc2ae2d73f8b226480523b718c8a6cd615bbb97b759",
+        "Unlicense": "blake3:51ea9d58f837736606e62bff45b355bcd7c1413edeec5ba91dc865be177c100a"
+      }
+    },
+    "name": "ripgrep",
+    "ordin": 1,
+    "summary": "Searches directories recursively for a regular expression",
+    "version": {
+      "release": "1",
+      "upstream": "16.0.0"
+    }
+  },
+  "package": "blake3:f644fd1ca02f4cf1fa2e495767c1723d0fc8f98201c37915f1e7caebf2b6c3df",
+  "signatures": []
+}

@@ -1,0 +1,59 @@
+{
+  "file": "devscripts.ordin",
+  "image": "sha256:449d84c3f3a4a6f1d2c9f9005b70b18a71400da5938f9eba47886b8d9a205713",
+  "manifest": {
+    "arch": "noarch",
+    "declares": {
+      "config": [
+        {
+          "default": "/usr/share/ordin/defaults/devscripts/cowpoke.conf",
+          "merge": "three-way",
+          "target": "/etc/cowpoke.conf"
+        }
+      ]
+    },
+    "facets": {
+      "doc": {
+        "size": 697860,
+        "tree": "blake3:f05e2090502924835e0a9cca2ed277314d7a6c3d773691be2ed11c2a23960c39"
+      },
+      "runtime": {
+        "size": 1780193,
+        "tree": "blake3:aaea2ce82b4e95020d8b4fc72dec21e0bd7cd508816c614267668cf0fb053e6d"
+      }
+    },
+    "homepage": "https://salsa.debian.org/debian/devscripts",
+    "kind": "base",
+    "license": {
+      "spdx": "GPL-2.0-or-later AND GPL-2.0-only AND GPL-3.0-or-later AND GPL-3.0-only AND MIT AND ISC AND Artistic-1.0 AND Artistic-2.0 AND (Artistic-1.0-Perl OR GPL-1.0-or-later) AND LicenseRef-Public-Domain",
+      "texts": {
+        "Artistic-1.0": "blake3:4431741e07ce311f75f604d90f0c6516cb07badaa4bf25187bfdbdc8d3c47ad9",
+        "Artistic-1.0-Perl": "blake3:4431741e07ce311f75f604d90f0c6516cb07badaa4bf25187bfdbdc8d3c47ad9",
+        "Artistic-2.0": "blake3:4431741e07ce311f75f604d90f0c6516cb07badaa4bf25187bfdbdc8d3c47ad9",
+        "GPL-1.0-or-later": "blake3:4431741e07ce311f75f604d90f0c6516cb07badaa4bf25187bfdbdc8d3c47ad9",
+        "GPL-2.0-only": "blake3:4431741e07ce311f75f604d90f0c6516cb07badaa4bf25187bfdbdc8d3c47ad9",
+        "GPL-2.0-or-later": "blake3:4431741e07ce311f75f604d90f0c6516cb07badaa4bf25187bfdbdc8d3c47ad9",
+        "GPL-3.0-only": "blake3:4431741e07ce311f75f604d90f0c6516cb07badaa4bf25187bfdbdc8d3c47ad9",
+        "GPL-3.0-or-later": "blake3:4431741e07ce311f75f604d90f0c6516cb07badaa4bf25187bfdbdc8d3c47ad9",
+        "ISC": "blake3:4431741e07ce311f75f604d90f0c6516cb07badaa4bf25187bfdbdc8d3c47ad9",
+        "LicenseRef-Public-Domain": "blake3:4431741e07ce311f75f604d90f0c6516cb07badaa4bf25187bfdbdc8d3c47ad9",
+        "MIT": "blake3:4431741e07ce311f75f604d90f0c6516cb07badaa4bf25187bfdbdc8d3c47ad9"
+      }
+    },
+    "name": "devscripts",
+    "ordin": 1,
+    "requires": [
+      "file:/usr/bin/bash",
+      "file:/usr/bin/perl",
+      "file:/usr/bin/python3",
+      "file:/usr/bin/sh"
+    ],
+    "summary": "Scripts that make a Debian package maintainer's life easier",
+    "version": {
+      "release": "1",
+      "upstream": "2.25.15"
+    }
+  },
+  "package": "blake3:3b8c595002c1a02b889b2f9a24cebf33ebf1e8b1822955e0483597f5d2a2b15c",
+  "signatures": []
+}

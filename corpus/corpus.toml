@@ -1,0 +1,142 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-FileCopyrightText: 2026 The Ordin Authors
+
+# The dogfood corpus (ORD-152): real upstream artifacts that
+# `cargo xtask corpus` downloads, checks, lays out as install roots and packs
+# with `ordin pack`, comparing `ordin show --json` with corpus/<name>/show.json.
+# corpus/README.md describes every key.
+#
+# Each source is pinned by its size and SHA-256, checked before anything reads
+# it. A hash here was compared with a second source when it was added:
+# GitHub's asset digest for ripgrep, go.dev/dl for Go, and the trixie
+# Packages index on deb.debian.org for the Debian packages, whose URLs are on
+# snapshot.debian.org so they never go away.
+
+format = 1
+
+[[package]]
+name = "ripgrep-x86_64"
+about = "a static binary (musl) for x86_64, laid out from an upstream release tarball"
+licenses = { MIT = "usr/share/doc/ripgrep/LICENSE-MIT", Unlicense = "usr/share/doc/ripgrep/UNLICENSE" }
+
+[[package.source]]
+url = "https://github.com/BurntSushi/ripgrep/releases/download/16.0.0/ripgrep-16.0.0-x86_64-unknown-linux-musl.tar.gz"
+size = 2230229
+sha256 = "54268ab4643c00a290a29b0086066d64b3f56236dd805ec64629a86f9bd29fd0"
+format = "tar.gz"
+strip = 1
+place = [
+    { from = "rg", to = "usr/bin/rg" },
+    { from = "doc", to = "usr/share/doc/ripgrep" },
+    { from = "doc/rg.1", to = "usr/share/man/man1/rg.1" },
+    { from = "README.md", to = "usr/share/doc/ripgrep/README.md" },
+    { from = "COPYING", to = "usr/share/doc/ripgrep/COPYING" },
+    { from = "LICENSE-MIT", to = "usr/share/doc/ripgrep/LICENSE-MIT" },
+    { from = "UNLICENSE", to = "usr/share/doc/ripgrep/UNLICENSE" },
+    { from = "complete/rg.bash", to = "usr/share/bash-completion/completions/rg" },
+    { from = "complete/rg.fish", to = "usr/share/fish/vendor_completions.d/rg.fish" },
+    { from = "complete/_rg", to = "usr/share/zsh/site-functions/_rg" },
+]
+exclude = [
+    { path = "complete/_rg.ps1", reason = "a PowerShell completion" },
+    { path = "complete/rg-completions.nu", reason = "nushell has no system-wide completion directory yet" },
+]
+
+[[package]]
+name = "ripgrep-aarch64"
+about = "the same static binary for aarch64, so inference meets an AArch64 ELF file"
+licenses = { MIT = "usr/share/doc/ripgrep/LICENSE-MIT", Unlicense = "usr/share/doc/ripgrep/UNLICENSE" }
+
+[[package.source]]
+url = "https://github.com/BurntSushi/ripgrep/releases/download/16.0.0/ripgrep-16.0.0-aarch64-unknown-linux-musl.tar.gz"
+size = 1988157
+sha256 = "374f1886be881e8e8683d7107278f7af1b6017fda75eb97de71f5783f42b0110"
+format = "tar.gz"
+strip = 1
+place = [
+    { from = "rg", to = "usr/bin/rg" },
+    { from = "doc", to = "usr/share/doc/ripgrep" },
+    { from = "doc/rg.1", to = "usr/share/man/man1/rg.1" },
+    { from = "README.md", to = "usr/share/doc/ripgrep/README.md" },
+    { from = "COPYING", to = "usr/share/doc/ripgrep/COPYING" },
+    { from = "LICENSE-MIT", to = "usr/share/doc/ripgrep/LICENSE-MIT" },
+    { from = "UNLICENSE", to = "usr/share/doc/ripgrep/UNLICENSE" },
+    { from = "complete/rg.bash", to = "usr/share/bash-completion/completions/rg" },
+    { from = "complete/rg.fish", to = "usr/share/fish/vendor_completions.d/rg.fish" },
+    { from = "complete/_rg", to = "usr/share/zsh/site-functions/_rg" },
+]
+exclude = [
+    { path = "complete/_rg.ps1", reason = "a PowerShell completion" },
+    { path = "complete/rg-completions.nu", reason = "nushell has no system-wide completion directory yet" },
+]
+
+[[package]]
+name = "go"
+about = "a toolchain tarball: about 17,000 files, with the go and gofmt links in /usr/bin"
+licenses = { "BSD-3-Clause" = "usr/lib/go/LICENSE" }
+links = [
+    { path = "usr/bin/go", target = "../lib/go/bin/go" },
+    { path = "usr/bin/gofmt", target = "../lib/go/bin/gofmt" },
+]
+
+[[package.source]]
+url = "https://dl.google.com/go/go1.27.4.linux-amd64.tar.gz"
+size = 70680823
+sha256 = "7226736c2339719cda28fbf3a54d71aa63bcefe376e98cef00034268dab24840"
+format = "tar.gz"
+place = [{ from = "go", to = "usr/lib/go" }]
+# Inference reads every ELF file in a package as a program or library, so
+# these test files would make `ordin pack` refuse Go: they are built for other
+# machines and systems (i386, PowerPC, RISC-V, FreeBSD), and the x86-64 ones
+# would add requirements nothing installed needs. How a packager leaves paths
+# out of inference is a recipe decision of its own, not made here.
+exclude = [
+    { path = "go/src/debug/dwarf/testdata", reason = "ELF test files for other machines" },
+    { path = "go/src/debug/elf/testdata", reason = "ELF test files for other machines" },
+    { path = "go/src/runtime/pprof/testdata", reason = "ELF test files" },
+]
+
+[[package]]
+name = "jq"
+about = "a dynamically linked program with the two libraries it needs, from Debian trixie"
+licenses = { MIT = "usr/share/doc/jq/copyright", "CC-BY-3.0" = "usr/share/doc/jq/copyright", "BSD-2-Clause" = "usr/share/doc/libonig5/copyright" }
+
+[[package.source]]
+url = "https://snapshot.debian.org/archive/debian/20261002T203108Z/pool/main/j/jq/jq_1.7.1-6+deb13u4_amd64.deb"
+size = 78900
+sha256 = "7350392f700e20e46b7ae174a57f54e4ea106dd559753646d629b4e618bf2bff"
+format = "deb"
+
+[[package.source]]
+url = "https://snapshot.debian.org/archive/debian/20261002T203108Z/pool/main/j/jq/libjq1_1.7.1-6+deb13u4_amd64.deb"
+size = 167808
+sha256 = "70bb2cbd66d5ada4349067ae9f61d0560b3b359d4203f2c051ca5773153ae0ba"
+format = "deb"
+
+[[package.source]]
+url = "https://snapshot.debian.org/archive/debian/20241027T215652Z/pool/main/libo/libonig/libonig5_6.9.9-1+b1_amd64.deb"
+size = 189396
+sha256 = "3abee130696244050500bcc7870e3b4cb82ddd87149ece3fd55010c3d4e1d18c"
+format = "deb"
+
+[[package]]
+name = "logrotate"
+about = "config under etc/, state under var/lib and a systemd timer, from Debian trixie"
+licenses = { "GPL-2.0-only" = "usr/share/doc/logrotate/copyright", "BSD-3-Clause" = "usr/share/doc/logrotate/copyright" }
+
+[[package.source]]
+url = "https://snapshot.debian.org/archive/debian/20240720T144054Z/pool/main/l/logrotate/logrotate_3.22.0-1_amd64.deb"
+size = 61956
+sha256 = "6acd9410fb2f2c9b439e7ee83c7095140e56e343ce7bc90d31fd95bf23f296b7"
+format = "deb"
+
+[[package]]
+name = "devscripts"
+about = "scripts in sh, bash, Perl and Python, with Perl modules and a config file, from Debian trixie"
+licenses = { "GPL-2.0-or-later" = "usr/share/doc/devscripts/copyright", "GPL-2.0-only" = "usr/share/doc/devscripts/copyright", "GPL-3.0-or-later" = "usr/share/doc/devscripts/copyright", "GPL-3.0-only" = "usr/share/doc/devscripts/copyright", MIT = "usr/share/doc/devscripts/copyright", ISC = "usr/share/doc/devscripts/copyright", "Artistic-1.0" = "usr/share/doc/devscripts/copyright", "Artistic-2.0" = "usr/share/doc/devscripts/copyright", "Artistic-1.0-Perl" = "usr/share/doc/devscripts/copyright", "GPL-1.0-or-later" = "usr/share/doc/devscripts/copyright", "LicenseRef-Public-Domain" = "usr/share/doc/devscripts/copyright" }
+
+[[package.source]]
+url = "https://snapshot.debian.org/archive/debian/20250825T082922Z/pool/main/d/devscripts/devscripts_2.25.15+deb13u1_all.deb"
+size = 1067564
+sha256 = "100db3217cc5c16507f4aa98ba576d0a658edf27c3a67d1dfb59c6084307360f"
+format = "deb"
