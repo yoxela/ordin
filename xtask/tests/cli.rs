@@ -166,3 +166,22 @@ fn pre_release_runs_its_checks() {
         other => panic!("exit {other:?}: {stderr}"),
     }
 }
+
+/// `corpus` starts with `cargo metadata`, run as `$CARGO`. A program that
+/// doesn't exist stops it there, before anything is built or downloaded.
+#[test]
+fn corpus_runs_and_reports_a_failure_with_exit_1() {
+    for args in [&["corpus"][..], &["corpus", "--update"]] {
+        let out = Command::new(env!("CARGO_BIN_EXE_xtask"))
+            .args(args)
+            .env("CARGO", "/nonexistent/cargo")
+            .output()
+            .unwrap();
+        assert_eq!(out.status.code(), Some(1), "{args:?}");
+        assert!(out.stdout.is_empty());
+        assert_eq!(
+            String::from_utf8_lossy(&out.stderr),
+            "corpus: cargo metadata failed: failed to start `cargo metadata`: No such file or directory (os error 2)\n"
+        );
+    }
+}

@@ -1,0 +1,58 @@
+{
+  "file": "jq.ordin",
+  "image": "sha256:f7bd2785445be0e244f359f261928a116279b74393be62a69a295ec09ec86f5f",
+  "manifest": {
+    "arch": "x86_64",
+    "facets": {
+      "doc": {
+        "size": 157241,
+        "tree": "blake3:6fbe549cc57cf6912f52631a9fa48ab8e607cb8f2cb89de8d91c2736e01b4f67"
+      },
+      "runtime": {
+        "size": 1052480,
+        "tree": "blake3:088c8da7cd54df5a1efd641e770bde0283a1fb656c64280880ef5907608f0dc8"
+      }
+    },
+    "homepage": "https://jqlang.org",
+    "kind": "base",
+    "license": {
+      "spdx": "MIT AND CC-BY-3.0 AND BSD-2-Clause",
+      "texts": {
+        "BSD-2-Clause": "blake3:edf6d632eab030a09bc58811badb9f1fb846ebef05583df1ce02779d3b8ab1a6",
+        "CC-BY-3.0": "blake3:d13bce5d3a18bf431a283a13a08bed633c388e0e34976ec8a284d435ee2b1362",
+        "MIT": "blake3:d13bce5d3a18bf431a283a13a08bed633c388e0e34976ec8a284d435ee2b1362"
+      }
+    },
+    "name": "jq",
+    "ordin": 1,
+    "provides": [
+      "so:libjq.so.1",
+      "so:libonig.so.5"
+    ],
+    "requires": [
+      "so:ld-linux-x86-64.so.2@GLIBC_2.3",
+      "so:libc.so.6@GLIBC_2.14",
+      "so:libc.so.6@GLIBC_2.2.5",
+      "so:libc.so.6@GLIBC_2.3",
+      "so:libc.so.6@GLIBC_2.3.4",
+      "so:libc.so.6@GLIBC_2.33",
+      "so:libc.so.6@GLIBC_2.34",
+      "so:libc.so.6@GLIBC_2.36",
+      "so:libc.so.6@GLIBC_2.38",
+      "so:libc.so.6@GLIBC_2.4",
+      "so:libm.so.6@GLIBC_2.2.5",
+      "so:libm.so.6@GLIBC_2.23",
+      "so:libm.so.6@GLIBC_2.29",
+      "so:libm.so.6@GLIBC_2.35",
+      "so:libm.so.6@GLIBC_2.38",
+      "so:libm.so.6@GLIBC_2.39"
+    ],
+    "summary": "Filters and transforms JSON on the command line",
+    "version": {
+      "release": "1",
+      "upstream": "1.7.1"
+    }
+  },
+  "package": "blake3:991fe92543e9e6d0366e21be20c8f6d5b5169186d8a06ae5718375ac362fe247",
+  "signatures": []
+}

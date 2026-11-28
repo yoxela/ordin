@@ -103,6 +103,55 @@ jobs:
       - name: Test
         run: cargo test --workspace --locked
 
+  # The dogfood corpus (ORD-152): real upstream artifacts, pinned by hash,
+  # laid out as install roots, packed by the release ordin and compared with
+  # corpus/*/show.json. Both architectures check the same golden files, so
+  # every package must pack to the same bytes on each. curl and dpkg-deb
+  # come with the runner image.
+  corpus:
+    name: corpus (${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            runner: ubuntu-24.04
+          - arch: aarch64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install the pinned toolchain (rust-toolchain.toml)
+        run: rustup install
+      # The work directory, target/corpus, is left out: the downloads have
+      # their own cache below, and the install roots and packages are made
+      # afresh on every run.
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            target
+            !target/corpus
+          key: cargo-${{ runner.os }}-${{ matrix.arch }}-corpus-${{ hashFiles('rust-toolchain.toml', 'Cargo.lock') }}
+      # Downloads are named by their SHA-256 and checked on every run, so an
+      # older cache is safe to start from; the run removes what the list no
+      # longer names.
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: target/corpus/downloads
+          key: corpus-downloads-${{ hashFiles('corpus/corpus.toml') }}
+          restore-keys: corpus-downloads-
+      - name: Pack the corpus
+        run: |
+          curl --version | head -n 1
+          dpkg-deb --version | head -n 1
+          cargo xtask corpus
+
   deny:
     name: cargo deny
     runs-on: ubuntu-24.04

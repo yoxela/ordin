@@ -9,10 +9,11 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use xtask::release::{self, exec::System};
-use xtask::version_corpus;
+use xtask::{corpus, version_corpus};
 
 const USAGE: &str = "usage: cargo xtask <command>
   check-layers [--manifest-path <Cargo.toml>]
+  corpus [--update]
   dist --tag <tag> --out <dir>                 (inside the release container)
   pre-release
   release-sign <tag> --allowed-signers <file> --key <file>
@@ -33,6 +34,8 @@ fn main() -> ExitCode {
     {
         ["check-layers"] => check_layers(&root().join("Cargo.toml")),
         ["check-layers", "--manifest-path", path] => check_layers(&PathBuf::from(path)),
+        ["corpus"] => report("corpus", run_corpus(false)),
+        ["corpus", "--update"] => report("corpus", run_corpus(true)),
         ["dist", "--tag", tag, "--out", out] => report(
             "dist",
             release::dist::run(
@@ -98,6 +101,32 @@ fn release_sign(tag: &str, signers: &str, key: &str) -> Result<(), release::Erro
         release::sign::Outcome::Published => Ok(()),
         release::sign::Outcome::Declined => Err(release::Error::check("not published")),
     }
+}
+
+/// The dogfood corpus (ORD-152), built in cargo's target directory.
+fn run_corpus(update: bool) -> Result<(), release::Error> {
+    let meta = cargo_metadata::MetadataCommand::new()
+        .manifest_path(root().join("Cargo.toml"))
+        .no_deps()
+        .exec()
+        .map_err(|e| release::Error::check(format!("cargo metadata failed: {e}")))?;
+    let opts = corpus::Options {
+        root: meta.workspace_root.into_std_path_buf(),
+        target: meta.target_directory.into_std_path_buf(),
+        cargo: std::env::var("CARGO").unwrap_or_else(|_| "cargo".to_owned()),
+        update,
+    };
+    let report = corpus::run(&System, &opts, &mut io::stderr())?;
+    if update {
+        println!(
+            "corpus: {} packages, {} golden files written; review them with `git diff corpus/`",
+            report.packages.len(),
+            report.updated.len()
+        );
+    } else {
+        println!("corpus: ok, {} packages", report.packages.len());
+    }
+    Ok(())
 }
 
 fn read(path: &Path) -> Result<String, release::Error> {
