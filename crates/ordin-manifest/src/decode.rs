@@ -561,6 +561,21 @@ impl Decoder {
             )?,
             None => Vec::new(),
         };
+        let inference_skip = match o.opt(self, "inference") {
+            Some((v, p)) => {
+                let mut i = Obj::new(v, &p)?;
+                let (skip, sp) = i.req(self, "skip")?;
+                let skip = sorted(
+                    skip,
+                    &sp,
+                    |item, at| self.inference_skip(item, at),
+                    |s: &InferenceSkip| s.path.to_string(),
+                )?;
+                i.finish(self)?;
+                skip
+            }
+            None => Vec::new(),
+        };
         o.finish(self)?;
 
         // Every ignorable path must name a field the format doesn't define.
@@ -611,6 +626,7 @@ impl Decoder {
             abi,
             fixes,
             notices,
+            inference_skip,
             ignorable,
             ignored: std::mem::take(&mut self.ignored),
         };
@@ -1681,6 +1697,22 @@ impl Decoder {
         })
     }
 
+    fn inference_skip(&mut self, v: &Value, p: &Path) -> R<InferenceSkip> {
+        let mut o = Obj::new(v, p)?;
+        let (path, pp) = o.req(self, "path")?;
+        let path: FilePath = parse(path, &pp)?;
+        if !path.as_str().starts_with("/usr/") {
+            return rule(
+                &pp,
+                "a package's files are under /usr, so only paths there are skipped",
+            );
+        }
+        let (reason, rp) = o.req(self, "reason")?;
+        let reason = free(reason, &rp, SKIP_REASON_MAX, false)?;
+        o.finish(self)?;
+        Ok(InferenceSkip { path, reason })
+    }
+
     fn notice(&mut self, v: &Value, p: &Path) -> R<Notice> {
         let mut o = Obj::new(v, p)?;
         let (id, ip) = o.req(self, "id")?;
@@ -1900,6 +1932,24 @@ fn check_rules(m: &Manifest, facets_path: &Path) -> R<()> {
             if !m.facets.keys().any(|f| f.as_str() == "runtime") {
                 return rule(facets_path, "a base package has a runtime facet");
             }
+        }
+    }
+    // A skipped path covers everything below it, so none is below another.
+    for (i, pair) in m.inference_skip.windows(2).enumerate() {
+        if let [above, skip] = pair
+            && skip
+                .path
+                .as_str()
+                .strip_prefix(above.path.as_str())
+                .is_some_and(|rest| rest.starts_with('/'))
+        {
+            return rule(
+                &root.key("inference").key("skip").index(i + 1).key("path"),
+                format!(
+                    "{} is below {}, which is skipped already",
+                    skip.path, above.path
+                ),
+            );
         }
     }
     // Unit conditions name a setting of the package, with a matching value.

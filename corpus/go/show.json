@@ -1,6 +1,6 @@
 {
   "file": "go.ordin",
-  "image": "sha256:8bb0447ef3b6c14223daf6f6110b70337e310a41115596617895f5d457bde1db",
+  "image": "sha256:5d0a3782675cde4d0c3c792ffc57c32776ba8c8d093952357872a5f929aa99bf",
   "manifest": {
     "arch": "x86_64",
     "facets": {
@@ -9,11 +9,43 @@
         "tree": "blake3:9d93f69d13ed7dcc5bcce505f0db690622c4765580a91c76964801744930a26b"
       },
       "runtime": {
-        "size": 243862810,
-        "tree": "blake3:d3d1eef02b2cb819f4f56df523c65578b9316573e86bbcac8af5c939807551e9"
+        "size": 244311795,
+        "tree": "blake3:81ba65f4dc65a53e43ec5eb1d4bdc94aecd105989651a642ce0bbc46f72c9c91"
       }
     },
     "homepage": "https://go.dev",
+    "inference": {
+      "skip": [
+        {
+          "path": "/usr/lib/go/src/all.rc",
+          "reason": "Plan 9 build scripts"
+        },
+        {
+          "path": "/usr/lib/go/src/clean.rc",
+          "reason": "Plan 9 build scripts"
+        },
+        {
+          "path": "/usr/lib/go/src/debug/dwarf/testdata",
+          "reason": "ELF test files for other machines"
+        },
+        {
+          "path": "/usr/lib/go/src/debug/elf/testdata",
+          "reason": "ELF test files for other machines"
+        },
+        {
+          "path": "/usr/lib/go/src/make.rc",
+          "reason": "Plan 9 build scripts"
+        },
+        {
+          "path": "/usr/lib/go/src/run.rc",
+          "reason": "Plan 9 build scripts"
+        },
+        {
+          "path": "/usr/lib/go/src/runtime/pprof/testdata",
+          "reason": "ELF test files for other machines"
+        }
+      ]
+    },
     "kind": "base",
     "license": {
       "spdx": "BSD-3-Clause",
@@ -26,7 +58,6 @@
     "requires": [
       "file:/usr/bin/bash",
       "file:/usr/bin/perl",
-      "file:/usr/bin/rc",
       "file:/usr/bin/sh"
     ],
     "summary": "The Go programming language's compiler, tools and standard library",
@@ -35,6 +66,6 @@
       "upstream": "1.27.4"
     }
   },
-  "package": "blake3:7c2bca1e43be347356068bb1e78da98a41b126aa4f61fc454619081b545a6594",
+  "package": "blake3:cf3713ca45d196addfa79e8407e58b91db23918aa61158a6eeae197bb3526200",
   "signatures": []
 }

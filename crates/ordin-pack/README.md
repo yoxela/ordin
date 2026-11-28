@@ -55,7 +55,7 @@ Missing directories above a moved path are added as `root:root 0755`, and hard l
 
 ## Inferring requirements
 
-`infer(&tree, &mut source)` reads the files of a normalized tree and returns the architecture, requirements and provides they show, with notes. It skips `/usr/lib/debug` and `/usr/share/doc`.
+`infer(&tree, &mut source, &skip)` reads the files of a normalized tree and returns the architecture, requirements and provides they show, with notes. It skips `/usr/lib/debug` and `/usr/share/doc`, and every path in `skip` with everything below it: the manifest's `inference.skip`, from the recipe's `[[infer.skip]]`, for data that only looks like programs. A skipped file adds nothing: no architecture, requirements, provides or script, and a skipped library doesn't meet the package's own need for its soname. `pack` refuses a skip that matches nothing in the package (`SkipMissing`).
 
 **From ELF files** (executables and shared libraries; object files and core files are skipped):
 - **Requires:** each `DT_NEEDED` library becomes one `so:<lib>@<node>` atom per version node needed from it, skipping weak needs. A library needed without any version node becomes the bare `so:<lib>`.
@@ -67,7 +67,7 @@ Missing directories above a moved path are added as `root:root 0755`, and hard l
 - **A file with the ELF magic that can't be read** gives a note and adds nothing.
 
 **The architecture:**
-- Programs and libraries must all be 64-bit little-endian x86-64, or all AArch64. Two architectures, or anything else (32-bit, big-endian, another machine), is an error naming the files.
+- Programs and libraries must all be 64-bit little-endian x86-64, or all AArch64. Two architectures, or anything else (32-bit, big-endian, another machine), is an error naming the files. A file nothing runs, such as a test file for another machine, can be left out with `[[infer.skip]]`.
 - A package with no programs or libraries is `noarch`.
 
 **From `#!` lines** (executable files only, reading at most 256 bytes, as the kernel does):
@@ -119,7 +119,7 @@ Missing directories above a moved path are added as `root:root 0755`, and hard l
 
 `lint(&mut reader, &allows)` reads a `.ordin` file back and returns the warnings about likely mistakes, each with its `Check` (`ordin-recipe`) and the path it is about, and those the recipe's allows accept, with their reasons.
 
-- **Read through the archive.** The facet trees are put together into one tree, refused if two facets hold the same path other than as a directory. Requirements are inferred again with `infer`, reading each file through `ordin-archive`, which checks it against its digest; a damaged file stops the lint with the archive's error. A file is copied to an unlinked temporary file only once it starts with the ELF magic; of anything else, only the first 256 bytes are kept.
+- **Read through the archive.** The facet trees are put together into one tree, refused if two facets hold the same path other than as a directory. Requirements are inferred again with `infer`, with the skips the manifest records, reading each file through `ordin-archive`, which checks it against its digest; a damaged file stops the lint with the archive's error. A file is copied to an unlinked temporary file only once it starts with the ELF magic; of anything else, only the first 256 bytes are kept.
 - **The checks:** a `NOASSERTION` license; setuid and setgid files the manifest doesn't declare; files, directories and declared state paths and files with the other-write bit; inference's notes (private versions, names an atom can't hold, unreadable ELF files, unusual `#!` lines); interpreters neither in the package nor in `KNOWN_INTERPRETERS` or `VERSIONED_INTERPRETERS`; `so:` requirements on a library ending in `.so`, and requirements made only of `so:` atoms whose libraries nothing in the package needs; facets with no files; and files in `runtime` that look like `dev`, `doc` or `debug` files. A whole directory that looks wrong, such as `/usr/man` or `/usr/lib/cmake`, is one warning.
 - **Order:** warnings come in `Check` order, then by path, so a report is the same every time.
 - **Allows** accept a warning of their check, about one of their paths or below it, or anywhere when they name none. An allow, or one of its paths, that accepts nothing is an `unused-allow` warning.

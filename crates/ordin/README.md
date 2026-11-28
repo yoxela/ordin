@@ -48,7 +48,7 @@ Paths in `--owner`, `--setuid` and `--prefix` are paths in `DIR`, with or withou
 - A checkout whose tracked files differ from HEAD is refused, since the version would describe something else; untracked files, such as the install root, don't count. A shallow clone is refused, since it can't count the commits: fetch the whole history (`fetch-depth: 0` in GitHub Actions).
 - The `git` program is run with read-only commands only, without the file-system monitor, replace refs, a pager or a prompt.
 
-**Requirements are inferred.** Shared-library requirements and provides come from the ELF files, with symbol versions, and interpreters from `#!` lines. `ordin-pack`'s README has the rules. What can't be inferred safely is a warning, never a guess.
+**Requirements are inferred.** Shared-library requirements and provides come from the ELF files, with symbol versions, and interpreters from `#!` lines. `ordin-pack`'s README has the rules. What can't be inferred safely is a warning, never a guess. The recipe's `[[infer.skip]]` leaves out paths that only look like programs, such as test files built for other machines; the manifest records them with their reasons.
 - With `--json`, an error is printed as `{"error": "..."}`, and nothing goes to standard error.
 
 ## `ordin show`
@@ -60,7 +60,7 @@ ordin show FILE [--facets] [--json]
 Shows what a package holds, without installing or unpacking it. It needs no root.
 
 - **What it prints.** The name, version, architecture and kind; the summary and description; the license and the texts it carries; the package and image digests; and who signed it ("signed by" each key), or "not signed". Every signature has been checked to verify and to sign this package; whether its key is trusted is `ordin verify`'s question (ORD-133).
-- **Then each section that has anything in it.** The facets with their sizes, the relations to other packages (requires, provides, conflicts, recommends, supplements, obsoletes, replaces, removes), the declarations (users, groups, units, config, alternatives, triggers, setuid files, boot files), state, settings, the programs it runs, tests, security policy, a delegated payload, fixes and notices.
+- **Then each section that has anything in it.** The facets with their sizes, the relations to other packages (requires, provides, conflicts, recommends, supplements, obsoletes, replaces, removes), the declarations (users, groups, units, config, alternatives, triggers, setuid files, boot files), state, settings, the programs it runs, tests, security policy, a delegated payload, fixes and notices, and the paths inference didn't read ("not inferred from"), each with its reason.
 - **`--facets`** also reads each facet's tree and lists its entries as `ls -l` would: type and mode, owner, size and path, with a symlink's target (`->`), a hard link's file (`=>`), and any capabilities or extended attributes.
 - **Every string is made safe for a terminal.** Control characters and the bidirectional formatting characters are printed as `\u{…}`, so a package can't send escape sequences or reorder what you read.
 

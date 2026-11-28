@@ -147,6 +147,9 @@ pub enum PackError {
         /// The license.
         license: String,
     },
+    /// A path left out of inference matches nothing in the package.
+    #[error("{0}: left out of inference by [[infer.skip]], but nothing in the package is there")]
+    SkipMissing(FilePath),
     /// A declared setuid file isn't in the package.
     #[error("{0}: declared setuid or setgid, but no file in the package came from it")]
     SetuidMissing(TreePath),
@@ -453,7 +456,22 @@ pub fn pack(options: &PackOptions, out: &Output) -> Result<Packed, PackError> {
             source,
         }
     })?;
-    let inferred = infer(&layout.tree, &mut source)?;
+    let declared = &options.declared;
+    let skip: Vec<FilePath> = declared
+        .inference_skip
+        .iter()
+        .map(|s| s.path.clone())
+        .collect();
+    if let Some(missing) = skip.iter().find(|s| {
+        !layout
+            .tree
+            .entries()
+            .iter()
+            .any(|e| crate::infer::below(e.path.as_str(), s.as_str()))
+    }) {
+        return Err(PackError::SkipMissing(missing.clone()));
+    }
+    let inferred = infer(&layout.tree, &mut source, &skip)?;
     let arch = arch(options.arch, inferred.arch.as_ref())?;
     let out = match out {
         Output::File(file) => file.clone(),
@@ -468,7 +486,6 @@ pub fn pack(options: &PackOptions, out: &Output) -> Result<Packed, PackError> {
         }
     };
     let out = out.as_path();
-    let declared = &options.declared;
     check_declared(declared, &layout)?;
     let overrides: Vec<FacetOverride> = declared
         .facets
@@ -536,6 +553,7 @@ pub fn pack(options: &PackOptions, out: &Output) -> Result<Packed, PackError> {
         commit: Some(commit),
     });
     manifest.state = state(&layout, &declared.state);
+    manifest.inference_skip.clone_from(&declared.inference_skip);
     // Read back from its bytes, the manifest is exactly what is signed:
     // its sets sorted, and what was both inferred and declared once.
     let (manifest, identity) = Manifest::from_signed_bytes(&manifest.to_canonical_bytes()?)?;

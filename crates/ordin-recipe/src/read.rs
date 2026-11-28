@@ -12,8 +12,8 @@ use std::str::FromStr;
 use ordin_core::{Account, Facet, FilePath, Mode, PackageName};
 use ordin_depexpr::Expr;
 use ordin_manifest::{
-    Class, Condition, Flush, Group, Id, OnRemove, Presentation, Preset, Provide, Seed, Setting,
-    SettingType, SettingValue, StateFile, StatePath, Unit, UnitName, Url, User,
+    Class, Condition, Flush, Group, Id, InferenceSkip, OnRemove, Presentation, Preset, Provide,
+    Seed, Setting, SettingType, SettingValue, StateFile, StatePath, Unit, UnitName, Url, User,
 };
 use ordin_tree::TreePath;
 use ordin_version::Version;
@@ -22,7 +22,7 @@ use toml::de::{DeArray, DeTable, DeValue};
 
 use crate::{
     Allow, Check, DeclaredState, Error, FORMAT, FacetMove, LicenseFiles, REASON_MAX, Recipe,
-    RelativePath,
+    RelativePath, below,
 };
 
 /// A byte range in the recipe.
@@ -304,7 +304,8 @@ fn check_version(text: &str, release: &str) -> Result<(), String> {
 }
 
 const TOP: &[&str] = &[
-    "facets", "format", "group", "license", "lint", "package", "setting", "state", "unit", "user",
+    "facets", "format", "group", "infer", "license", "lint", "package", "setting", "state", "unit",
+    "user",
 ];
 const PACKAGE: &[&str] = &[
     "arch",
@@ -401,6 +402,9 @@ pub(crate) fn recipe(text: &str) -> Result<(Recipe, Locations), Error> {
     }
     if let Some(v) = get(&top, "facets") {
         recipe.declared.facets = facets(&r, v)?;
+    }
+    if let Some(v) = get(&top, "infer") {
+        recipe.declared.inference_skip = infer(&r, v)?;
     }
     if let Some(v) = get(&top, "lint") {
         recipe.lint = lint(&r, v)?;
@@ -717,19 +721,7 @@ fn facets(r: &Reader<'_>, v: &Value<'_>) -> Result<Vec<FacetMove>, Error> {
         };
         let items = r.array(extra, "paths")?;
         for item in items.iter() {
-            let s = r.string(item)?;
-            // A trailing /** means the same as the directory: it and
-            // everything below it.
-            let path = s.strip_suffix("/**").unwrap_or(s);
-            if path.contains(PATTERN) {
-                return Err(r.error(
-                    &item.span(),
-                    format!("expected a path, or a directory ending in /**; other patterns aren't supported: {s:?}"),
-                ));
-            }
-            let path: TreePath = path.parse().map_err(|e: String| {
-                r.error(&item.span(), format!("expected an absolute path: {e}"))
-            })?;
+            let path = package_path(r, item)?;
             if !seen.insert(path.clone()) {
                 return Err(r.error(&item.span(), format!("{path} is moved to a facet twice")));
             }
@@ -742,6 +734,74 @@ fn facets(r: &Reader<'_>, v: &Value<'_>) -> Result<Vec<FacetMove>, Error> {
     Ok(moves)
 }
 
+/// A package path for a facet move or an inference skip: absolute, with a
+/// trailing `/**` meaning the same as the directory, and no other pattern.
+fn package_path(r: &Reader<'_>, item: &Value<'_>) -> Result<TreePath, Error> {
+    let s = r.string(item)?;
+    let path = s.strip_suffix("/**").unwrap_or(s);
+    if path.contains(PATTERN) {
+        return Err(r.error(
+            &item.span(),
+            format!("expected a path, or a directory ending in /**; other patterns aren't supported: {s:?}"),
+        ));
+    }
+    path.parse()
+        .map_err(|e: String| r.error(&item.span(), format!("expected an absolute path: {e}")))
+}
+
+/// Reads `[infer]`: its `[[infer.skip]]` entries, one per path.
+fn infer(r: &Reader<'_>, v: &Value<'_>) -> Result<Vec<InferenceSkip>, Error> {
+    let t = r.table(v, "[infer]".to_owned(), &["skip"])?;
+    let Some(v) = get(&t, "skip") else {
+        return Ok(Vec::new());
+    };
+    let mut skips: Vec<InferenceSkip> = Vec::new();
+    for (t, _) in r.tables(v, "infer.skip", &["paths", "reason"])? {
+        let reason = reason(
+            r,
+            r.need(&t, "reason")?,
+            "a skip says why its files aren't read",
+        )?;
+        let v = r.need(&t, "paths")?;
+        let items = r.array(v, "paths")?;
+        if items.is_empty() {
+            return Err(r.error(&v.span(), "expected at least one path"));
+        }
+        for item in items.iter() {
+            let path = package_path(r, item)?;
+            if !path.as_str().starts_with("/usr/") {
+                return Err(r.error(
+                    &item.span(),
+                    format!(
+                        "{path} isn't under /usr, where a package's files are after its layout"
+                    ),
+                ));
+            }
+            let path: FilePath = path.as_str().parse().map_err(|e: ordin_core::Error| {
+                r.error(&item.span(), format!("expected an absolute path: {e}"))
+            })?;
+            for earlier in &skips {
+                let (a, b) = (earlier.path.as_str(), path.as_str());
+                let message = if a == b {
+                    format!("{path} is skipped twice")
+                } else if below(b, a) {
+                    format!("{path} is below {a}, which is skipped already")
+                } else if below(a, b) {
+                    format!("{a}, skipped already, is below {path}; skip only {path}")
+                } else {
+                    continue;
+                };
+                return Err(r.error(&item.span(), message));
+            }
+            skips.push(InferenceSkip {
+                path,
+                reason: reason.clone(),
+            });
+        }
+    }
+    Ok(skips)
+}
+
 /// Reads `[lint]`: its `[[lint.allow]]` entries.
 fn lint(r: &Reader<'_>, v: &Value<'_>) -> Result<Vec<Allow>, Error> {
     let t = r.table(v, "[lint]".to_owned(), &["allow"])?;
@@ -751,7 +811,11 @@ fn lint(r: &Reader<'_>, v: &Value<'_>) -> Result<Vec<Allow>, Error> {
     let mut allows: Vec<Allow> = Vec::new();
     for (t, _) in r.tables(v, "lint.allow", &["id", "paths", "reason"])? {
         let check = allowed_check(r, r.need(&t, "id")?)?;
-        let reason = reason(r, r.need(&t, "reason")?)?;
+        let reason = reason(
+            r,
+            r.need(&t, "reason")?,
+            "an allow says why the warning is accepted",
+        )?;
         let line = position(r.text, t.span.start).0;
         let mut paths: Vec<TreePath> = Vec::new();
         if let Some(v) = get(&t, "paths") {
@@ -829,12 +893,13 @@ fn allowed_check(r: &Reader<'_>, v: &Value<'_>) -> Result<Check, Error> {
     }
 }
 
-/// An allow's reason: one line of text.
-fn reason(r: &Reader<'_>, v: &Value<'_>) -> Result<String, Error> {
+/// An allow's or a skip's reason: one line of text. `empty` says what an
+/// empty one is missing.
+fn reason(r: &Reader<'_>, v: &Value<'_>, empty: &str) -> Result<String, Error> {
     let reason = r.string(v)?;
     let bad = |why: &str| r.error(&v.span(), format!("expected a reason: {why}"));
     if reason.trim().is_empty() {
-        return Err(bad("an allow says why the warning is accepted"));
+        return Err(bad(empty));
     }
     if reason.chars().any(char::is_control) {
         return Err(bad("one line, without control characters"));

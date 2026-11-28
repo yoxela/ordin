@@ -144,6 +144,29 @@ A path is as it is in the package, after `bin/` moves to `/usr/bin` and prefixes
 extra = ["/usr/lib/foo/sdk", "/usr/share/foo/headers/**"]
 ```
 
+## `[[infer.skip]]`
+
+Paths whose files `ordin pack` doesn't infer from: data that only looks like programs, such as test files built for other machines, or scripts for another system. Without a skip, an ELF file for another machine makes `ordin pack` refuse the package, and a test program adds requirements nothing installed needs.
+
+| Key | Type | Meaning |
+| --- | --- | --- |
+| `paths` | array of strings | Paths in the package, each with everything below it |
+| `reason` | string | Why their files aren't read: one line, at most 200 characters |
+
+```toml
+[[infer.skip]]
+paths  = ["/usr/lib/go/src/debug/elf/testdata", "/usr/lib/go/src/runtime/pprof/testdata"]
+reason = "ELF test files for other machines"
+```
+
+- **A path** is as it is in the package, as for `[facets.NAME] extra`. It must be under `/usr`, where a package's files are after its layout, and, like every path the manifest records, printable ASCII without spaces, brackets, `,` or `= ! < > ~`. A trailing `/**` means the same as the directory, and any other pattern is refused.
+- **Refused:** a path skipped twice, or one below another skipped path, in the same entry or another.
+- **No match:** a path that matches nothing in the package is refused when it is packed.
+- **What a skip leaves out:** inference reads none of the files there, so they add no architecture, requirements or provides, and their `#!` lines aren't read. Everything else about them is unchanged: they are packed, classified into facets, and checked by `ordin lint` for setuid bits and world-writable modes.
+- **Where it's recorded:** each path and its reason go into the manifest's `inference.skip`, so `ordin lint` infers again with the same skips without the recipe, and `ordin show` lists them.
+
+Skip only what nothing on the host runs. A skipped program that is run would be missing its requirements.
+
 ## `[[lint.allow]]`
 
 `ordin lint` warns about likely mistakes in a package. An allow accepts one on purpose, and says why. It changes nothing in the package, and `ordin pack` ignores it.

@@ -9,7 +9,7 @@ Real upstream artifacts, packed by `ordin pack` in CI, so that packing is tested
 | --- | --- |
 | `ripgrep-x86_64` | A static binary (musl), laid out from an upstream release tarball |
 | `ripgrep-aarch64` | The same for aarch64, so inference meets an AArch64 ELF file |
-| `go` | A toolchain tarball: about 17,000 files, with links in `/usr/bin` |
+| `go` | A toolchain tarball: about 17,000 files, with links in `/usr/bin`, and test files for other machines left out of inference by its recipe |
 | `jq` | A dynamically linked program with the two libraries it needs (Debian trixie) |
 | `logrotate` | Config under `etc/`, state under `var/lib` and a systemd timer (Debian trixie) |
 | `devscripts` | Scripts in sh, bash, Perl and Python (Debian trixie) |

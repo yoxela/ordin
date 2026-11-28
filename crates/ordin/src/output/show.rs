@@ -476,7 +476,8 @@ fn state(out: &mut Text, m: &Manifest) {
     out.section("state", &lines);
 }
 
-/// Settings, programs run, policy and notices.
+/// Settings, programs run, policy, notices, and the paths inference didn't
+/// read.
 fn the_rest(out: &mut Text, m: &Manifest) {
     out.section(
         "settings",
@@ -566,6 +567,12 @@ fn the_rest(out: &mut Text, m: &Manifest) {
         notices.extend(paragraph(&n.text).into_iter().map(|l| format!("  {l}")));
     }
     out.section("notices", &notices);
+    let skipped: Vec<String> = m
+        .inference_skip
+        .iter()
+        .map(|s| format!("{}: {}", t(&s.path), t(&s.reason)))
+        .collect();
+    out.section("not inferred from", &skipped);
 }
 
 /// The package as text. `files` holds each facet's entry count when the

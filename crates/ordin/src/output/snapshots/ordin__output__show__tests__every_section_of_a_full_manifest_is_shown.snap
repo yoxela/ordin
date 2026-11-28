@@ -1,6 +1,6 @@
 ---
 source: crates/ordin/src/output/show.rs
-assertion_line: 843
+assertion_line: 850
 expression: "text(&package(&m), None)"
 ---
 nginx 1:1.27.3-2 (x86_64, base)
@@ -153,3 +153,7 @@ notices:
     The default site moved to sites-enabled.
   restart-needed:
     Restart after changing modules.
+
+not inferred from:
+  /usr/share/nginx/test/elf: ELF test files for other machines
+  /usr/share/nginx/test/scripts: Plan 9 scripts nobody runs on Linux

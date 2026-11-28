@@ -90,6 +90,7 @@ Within format 1:
 | `abi` | object | no | | Per shared library, the digest of its exported ABI: `{"libQt5Core.so.5": "blake3:…"}`. Keys are sonames |
 | `fixes` | set of strings | no | | Advisory and fix IDs this package contains (`CVE-2026-1234`, `fix-1234`), 1 to 64 printable ASCII characters each |
 | `notices` | array | no | | See Notices |
+| `inference` | object | no | | See Inference |
 | `ignorable` | set of strings | no | | Fields an older reader may skip; see Versions and evolution. Only fields this format doesn't define may be listed |
 
 Each requirement field is a set of expressions rather than one long one: each entry diffs cleanly between versions, inferred and declared requirements merge without duplicates, and the solver can name the entry that failed.
@@ -296,3 +297,15 @@ What a repo may ship is limited by its namespace.
 ## Notices
 
 An array sorted by `id`: `id` (*id*) and `text` (up to 2,000 characters). Shown once in `ordin changes` and plans, and recorded.
+
+## Inference
+
+What `ordin pack` was told about inferring requirements from the package's files. An object with one field, `skip`, which is required.
+
+`skip` is an array sorted by `path`. Each entry has:
+- `path` (*path*): a path under `/usr`, standing for itself and everything below it.
+- `reason`: one line of 1 to 200 characters saying why.
+
+Inference reads none of the files there: they add no architecture, requirements or provides, and their `#!` lines are not read. This is for data that only looks like programs, such as test files built for other machines. `ordin lint` infers again with the same skips, and `ordin show` lists them, so a reviewer sees what inference didn't read.
+
+A path below another skipped path is refused, since that path covers it already. The paths are checked against the package's files when it is packed (`ordin-recipe`'s `FORMAT.md`), not here, because the trees are separate from the manifest.

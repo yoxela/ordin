@@ -354,7 +354,7 @@ mod requirements {
             ],
             &[],
         );
-        let found = infer(&t, &mut s).unwrap();
+        let found = infer(&t, &mut s, &[]).unwrap();
         assert_eq!(found.arch, Some((Arch::X86_64, p("/usr/bin/hello"))));
         assert_eq!(
             atoms(&found.provides),
@@ -400,7 +400,7 @@ mod requirements {
             ],
             &[("/usr/bin/hi", "hello")],
         );
-        let found = infer(&t, &mut s).unwrap();
+        let found = infer(&t, &mut s, &[]).unwrap();
         assert!(!atoms(&found.requires).iter().any(|a| a.contains("libplug")));
         assert!(
             !atoms(&found.requires)
@@ -425,7 +425,7 @@ mod requirements {
             ..spec(EM_X86_64.0, ET_EXEC.0)
         };
         let (t, mut s) = tree(&[("/usr/bin/odd", build(&odd), "0755")], &[]);
-        let found = infer(&t, &mut s).unwrap();
+        let found = infer(&t, &mut s, &[]).unwrap();
         assert_eq!(
             atoms(&found.requires),
             [
@@ -465,7 +465,7 @@ mod requirements {
             ],
             &[],
         );
-        let found = infer(&t, &mut s).unwrap();
+        let found = infer(&t, &mut s, &[]).unwrap();
         assert_eq!(
             atoms(&found.provides),
             ["so:libgood.so.1", "so:libgood.so.1@V_1"]
@@ -504,7 +504,7 @@ mod requirements {
             ],
             &[],
         );
-        let found = infer(&t, &mut s).unwrap();
+        let found = infer(&t, &mut s, &[]).unwrap();
         let scripts: Vec<(&str, &str)> = found
             .scripts
             .iter()
@@ -544,7 +544,7 @@ mod requirements {
             ],
             &[],
         );
-        let e = infer(&t, &mut s).unwrap_err();
+        let e = infer(&t, &mut s, &[]).unwrap_err();
         assert!(matches!(e, InferError::Mixed { .. }));
         assert_eq!(
             e.to_string(),
@@ -559,17 +559,77 @@ mod requirements {
             ],
             &[],
         );
-        assert_eq!(infer(&t, &mut s).unwrap().arch.unwrap().0, Arch::Aarch64);
+        assert_eq!(
+            infer(&t, &mut s, &[]).unwrap().arch.unwrap().0,
+            Arch::Aarch64
+        );
         let i386 = Spec {
             is_64: false,
             ..spec(EM_386.0, ET_EXEC.0)
         };
         let (t, mut s) = tree(&[("/usr/bin/old", build(&i386), "0755")], &[]);
         assert_eq!(
-            infer(&t, &mut s).unwrap_err().to_string(),
+            infer(&t, &mut s, &[]).unwrap_err().to_string(),
             "/usr/bin/old is a 32-bit little-endian ELF file for machine 3, and Ordin packages \
-             only 64-bit x86_64 and aarch64"
+             only 64-bit x86_64 and aarch64; if nothing runs it, leave it out of inference with \
+             [[infer.skip]] in the recipe"
         );
+    }
+
+    #[test]
+    fn skipped_paths_add_nothing() {
+        let i386 = Spec {
+            is_64: false,
+            ..spec(EM_386.0, ET_EXEC.0)
+        };
+        let (t, mut s) = tree(
+            &[
+                ("/usr/bin/hello", build(&program()), "0755"),
+                // Data that only looks like programs.
+                ("/usr/lib/test/old", build(&i386), "0755"),
+                (
+                    "/usr/lib/test/prog",
+                    build(&library("libtest.so.1")),
+                    "0644",
+                ),
+                ("/usr/lib/test/run.rc", b"#!/bin/rc\n".to_vec(), "0755"),
+                // A skipped library neither provides its soname nor meets
+                // the package's own need for it.
+                (
+                    "/usr/lib/libssl.so.3",
+                    build(&library("libssl.so.3")),
+                    "0644",
+                ),
+                // A sibling whose name only starts the same is read.
+                ("/usr/lib/testing/x", b"#!/bin/sh\n".to_vec(), "0755"),
+            ],
+            &[],
+        );
+        let skip: Vec<ordin_core::FilePath> = ["/usr/lib/test", "/usr/lib/libssl.so.3"]
+            .iter()
+            .map(|p| p.parse().unwrap())
+            .collect();
+        assert!(matches!(
+            infer(&t, &mut s, &[]).unwrap_err(),
+            InferError::Foreign { .. }
+        ));
+        let found = infer(&t, &mut s, &skip).unwrap();
+        assert_eq!(found.arch, Some((Arch::X86_64, p("/usr/bin/hello"))));
+        assert_eq!(
+            atoms(&found.requires),
+            [
+                "file:/usr/bin/sh",
+                "so:libc.so.6@GLIBC_2.34",
+                "so:libc.so.6@GLIBC_2.38",
+                "so:libssl.so.3@OPENSSL_3.0.0",
+            ]
+        );
+        assert!(found.provides.is_empty());
+        assert_eq!(
+            found.scripts,
+            [(p("/usr/lib/testing/x"), "/usr/bin/sh".parse().unwrap())]
+        );
+        assert!(found.notes.is_empty());
     }
 
     #[test]
@@ -577,7 +637,7 @@ mod requirements {
         let mut broken = build(&program());
         broken.truncate(100);
         let (t, mut s) = tree(&[("/usr/bin/broken", broken, "0755")], &[]);
-        let found = infer(&t, &mut s).unwrap();
+        let found = infer(&t, &mut s, &[]).unwrap();
         assert!(found.requires.is_empty());
         assert!(matches!(
             &found.notes[..],
@@ -590,7 +650,7 @@ mod requirements {
         );
 
         s.0.clear();
-        let e = infer(&t, &mut s).unwrap_err();
+        let e = infer(&t, &mut s, &[]).unwrap_err();
         assert_eq!(chain(&e), "/usr/bin/broken: no such file");
     }
 
