@@ -19,7 +19,8 @@ use std::fmt;
 use ordin_core::{Arch, Facet, FilePath, PackageName};
 use ordin_depexpr::Expr;
 use ordin_manifest::{
-    Group, Presentation, Provide, Seed, Setting, StateFile, StatePath, Unit, Url, User,
+    Group, InferenceSkip, Presentation, Provide, Seed, Setting, StateFile, StatePath, Unit, Url,
+    User,
 };
 use ordin_tree::TreePath;
 
@@ -114,6 +115,9 @@ pub struct Declared {
     pub state: DeclaredState,
     /// Paths moved to another facet than their path rule's.
     pub facets: Vec<FacetMove>,
+    /// `[[infer.skip]]`: paths inference doesn't read, one entry per path,
+    /// in the recipe's order.
+    pub inference_skip: Vec<InferenceSkip>,
 }
 
 /// `[state]`: declared state, which wins over what is inferred at the

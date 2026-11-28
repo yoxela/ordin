@@ -10,8 +10,8 @@ mod recipe {
 
     use ordin_core::{Account, Arch, Facet, FilePath, Mode};
     use ordin_manifest::{
-        Class, Condition, Flush, Group, OnRemove, Presentation, Preset, Provide, Seed, Setting,
-        SettingType, SettingValue, StateFile, StatePath, Unit, User,
+        Class, Condition, Flush, Group, InferenceSkip, OnRemove, Presentation, Preset, Provide,
+        Seed, Setting, SettingType, SettingValue, StateFile, StatePath, Unit, User,
     };
     use ordin_recipe::{
         Allow, Check, DeclaredState, Error, FacetMove, LicenseFiles, MAX_SIZE, Package, REASON_MAX,
@@ -431,7 +431,7 @@ extra = ["/usr/share/nginx/examples"]
             "sumary = \"x\"\n",
             2,
             1,
-            "a recipe has no key \"sumary\"; expected facets, format, group, license, lint, package, setting, state, unit or user",
+            "a recipe has no key \"sumary\"; expected facets, format, group, infer, license, lint, package, setting, state, unit or user",
         );
         refused(
             "[package]\nsumary = \"x\"\n",
@@ -1254,6 +1254,169 @@ extra = ["/usr/share/nginx/examples"]
             3,
             9,
             "expected an array of tables, written [[lint.allow]], found an integer",
+        );
+    }
+
+    #[test]
+    fn inference_skips_are_read_one_per_path() {
+        let text = "format = 1\n\
+                    [[infer.skip]]\n\
+                    paths = [\"/usr/lib/go/src/debug/elf/testdata/**\", \"/usr/lib/go/src/all.rc\"]\n\
+                    reason = \"test files\"\n\
+                    \n\
+                    [[infer.skip]]\n\
+                    paths = [\"/usr/lib/go/src/debug/dwarf\"]\n\
+                    reason = \"more\"\n";
+        let r = parse(text).unwrap();
+        let skip = |path: &str, reason: &str| InferenceSkip {
+            path: path.parse::<FilePath>().unwrap(),
+            reason: reason.to_owned(),
+        };
+        assert_eq!(
+            r.declared.inference_skip,
+            [
+                skip("/usr/lib/go/src/debug/elf/testdata", "test files"),
+                skip("/usr/lib/go/src/all.rc", "test files"),
+                skip("/usr/lib/go/src/debug/dwarf", "more"),
+            ]
+        );
+        // A sibling whose name only starts the same is no overlap.
+        let siblings =
+            "format = 1\n[[infer.skip]]\npaths = [\"/usr/a\", \"/usr/ab\"]\nreason = \"x\"\n";
+        assert_eq!(parse(siblings).unwrap().declared.inference_skip.len(), 2);
+        assert!(
+            parse("format = 1\n[infer]\n")
+                .unwrap()
+                .declared
+                .inference_skip
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn inference_skips_are_refused_where_they_are_wrong() {
+        let skip = "[[infer.skip]]\n";
+        refused(
+            "[infer]\nignore = []\n",
+            3,
+            1,
+            "[infer] has no key \"ignore\"; expected skip",
+        );
+        refused(
+            "infer = 1\n",
+            2,
+            9,
+            "expected a table for [infer], found an integer",
+        );
+        refused(
+            "[infer]\nskip = 1\n",
+            3,
+            8,
+            "expected an array of tables, written [[infer.skip]], found an integer",
+        );
+        refused(
+            &format!("{skip}paths = [\"/usr/a\"]\nreason = \"x\"\nwhy = 1\n"),
+            5,
+            1,
+            "[[infer.skip]] has no key \"why\"; expected paths or reason",
+        );
+        refused(
+            &format!("{skip}paths = [\"/usr/a\"]\n"),
+            2,
+            1,
+            "[[infer.skip]] needs reason",
+        );
+        refused(
+            &format!("{skip}reason = \"x\"\n"),
+            2,
+            1,
+            "[[infer.skip]] needs paths",
+        );
+        let paths = |p: &str| format!("{skip}reason = \"x\"\npaths = {p}\n");
+        refused(&paths("[]"), 4, 9, "expected at least one path");
+        refused(
+            &paths("\"/usr/a\""),
+            4,
+            9,
+            "expected an array of paths, found a string",
+        );
+        refused(&paths("[1]"), 4, 10, "expected a string, found an integer");
+        refused(&paths("[\"usr/a\"]"), 4, 10, "expected an absolute path");
+        refused(
+            &paths("[\"/usr/*.rc\"]"),
+            4,
+            10,
+            "other patterns aren't supported: \"/usr/*.rc\"",
+        );
+        // A tree path the manifest's paths can't hold: they are printable ASCII.
+        refused(
+            &paths("[\"/usr/a b\"]"),
+            4,
+            10,
+            "expected an absolute path: ",
+        );
+        refused(
+            &paths("[\"/etc/a\"]"),
+            4,
+            10,
+            "/etc/a isn't under /usr, where a package's files are after its layout",
+        );
+        refused(&paths("[\"/usr\"]"), 4, 10, "/usr isn't under /usr");
+        refused(
+            &paths("[\"/usr/a\", \"/usr/a/**\"]"),
+            4,
+            20,
+            "/usr/a is skipped twice",
+        );
+        refused(
+            &paths("[\"/usr/a\", \"/usr/a/b\"]"),
+            4,
+            20,
+            "/usr/a/b is below /usr/a, which is skipped already",
+        );
+        refused(
+            &paths("[\"/usr/a/b\", \"/usr/a\"]"),
+            4,
+            22,
+            "/usr/a/b, skipped already, is below /usr/a; skip only /usr/a",
+        );
+        // Across entries too.
+        refused(
+            &format!(
+                "{skip}reason = \"x\"\npaths = [\"/usr/a\"]\n{skip}reason = \"y\"\npaths = [\"/usr/a/b\"]\n"
+            ),
+            7,
+            10,
+            "/usr/a/b is below /usr/a, which is skipped already",
+        );
+        let reason = |r: &str| format!("{skip}paths = [\"/usr/a\"]\nreason = {r}\n");
+        refused(
+            &reason("\" \""),
+            4,
+            10,
+            "expected a reason: a skip says why its files aren't read",
+        );
+        refused(
+            &reason("\"a\\nb\""),
+            4,
+            10,
+            "expected a reason: one line, without control characters",
+        );
+        refused(
+            &reason(&format!("\"{}\"", "x".repeat(REASON_MAX + 1))),
+            4,
+            10,
+            "at most 200 characters",
+        );
+        let longest = reason(&format!("\"{}\"", "x".repeat(REASON_MAX)));
+        assert_eq!(
+            parse(&format!("format = 1\n{longest}"))
+                .unwrap()
+                .declared
+                .inference_skip[0]
+                .reason
+                .len(),
+            REASON_MAX
         );
     }
 }

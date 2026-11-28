@@ -205,6 +205,20 @@ pub(crate) fn manifest(m: &Manifest) -> Value {
                 },
             ),
         )
+        .put(
+            "inference",
+            sorted(
+                &m.inference_skip,
+                |i| i.path.to_string(),
+                |i| {
+                    Obj::default()
+                        .put("path", s(&i.path))
+                        .put("reason", s(&i.reason))
+                        .value()
+                },
+            )
+            .map(|skip| Obj::default().put("skip", skip).value()),
+        )
         .put("ignorable", set(&m.ignorable))
         .value();
     for (at, ignored) in &m.ignored {

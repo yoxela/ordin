@@ -846,6 +846,117 @@ fn rules_that_link_fields() {
 }
 
 #[test]
+fn inference_skips_are_sorted_paths_under_usr_with_a_reason() {
+    let skip = |path: &str, reason: &str| {
+        format!(
+            r#"{{"skip": [{{"path": "/usr/a", "reason": "r"}}, {{"path": "{path}", "reason": "{reason}"}}]}}"#
+        )
+    };
+    check!(
+        EVERYTHING,
+        "/inference",
+        Some(&skip("/usr/a/b", "r")),
+        "inference.skip[1].path",
+        "/usr/a/b is below /usr/a, which is skipped already"
+    );
+    check!(
+        EVERYTHING,
+        "/inference",
+        Some(&skip("/usr/a/b/c", "r")),
+        "inference.skip[1].path",
+        "is below /usr/a"
+    );
+    check!(
+        EVERYTHING,
+        "/inference",
+        Some(&skip("/usr/0", "r")),
+        "inference.skip[1]",
+        "\"/usr/0\" must come before \"/usr/a\""
+    );
+    check!(
+        EVERYTHING,
+        "/inference",
+        Some(&skip("/usr/a", "r")),
+        "inference.skip[1]",
+        "/usr/a"
+    );
+    check!(
+        EVERYTHING,
+        "/inference",
+        Some(&skip("/var/a", "r")),
+        "inference.skip[1].path",
+        "only paths there are skipped"
+    );
+    check!(
+        EVERYTHING,
+        "/inference",
+        Some(&skip("/usr", "r")),
+        "inference.skip[1].path",
+        "only paths there are skipped"
+    );
+    check!(
+        EVERYTHING,
+        "/inference",
+        Some(&skip("usr/b", "r")),
+        "inference.skip[1].path",
+        ""
+    );
+    check!(
+        EVERYTHING,
+        "/inference",
+        Some(&skip("/usr/b", "")),
+        "inference.skip[1].reason",
+        "1 to 200 characters"
+    );
+    check!(
+        EVERYTHING,
+        "/inference",
+        Some(&skip("/usr/b", &"x".repeat(201))),
+        "inference.skip[1].reason",
+        "1 to 200 characters"
+    );
+    check!(
+        EVERYTHING,
+        "/inference",
+        Some(&skip("/usr/b", "a\\nb")),
+        "inference.skip[1].reason",
+        "this is one line"
+    );
+    check!(
+        EVERYTHING,
+        "/inference",
+        Some(r#"{"skip": []}"#),
+        "inference.skip",
+        ""
+    );
+    check!(EVERYTHING, "/inference", Some(r#"{}"#), "inference", "");
+    check!(
+        EVERYTHING,
+        "/inference",
+        Some(r#"{"skip": [{"path": "/usr/a", "reason": "r"}], "other": 1}"#),
+        "inference.other",
+        ""
+    );
+    check!(
+        EVERYTHING,
+        "/inference/skip/0/path",
+        None,
+        "inference.skip[0]",
+        "path"
+    );
+    // A sibling whose name only starts the same isn't below it.
+    let text = edit(
+        EVERYTHING,
+        "/inference",
+        Some(&skip("/usr/ab", &"x".repeat(200))),
+    )
+    .unwrap();
+    let m = Manifest::from_json(&text).unwrap();
+    assert_eq!(m.inference_skip.len(), 2);
+    assert_eq!(m.inference_skip[1].path.as_str(), "/usr/ab");
+}
+
+#[test]
 fn settings_are_typed() {
     let s = |i: usize, value: &str, path: &str, message: &str| {
         check!(

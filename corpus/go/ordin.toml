@@ -12,3 +12,25 @@ version  = "1.27.4"
 summary  = "The Go programming language's compiler, tools and standard library"
 homepage = "https://go.dev"
 license  = "BSD-3-Clause"
+
+# Data that only looks like programs (ORD-115). The test files are ELF files
+# built for other machines and systems (i386, PowerPC, RISC-V, FreeBSD), which
+# would make `ordin pack` refuse Go, and the x86-64 ones would add
+# requirements nothing installed needs.
+[[infer.skip]]
+paths = [
+    "/usr/lib/go/src/debug/dwarf/testdata",
+    "/usr/lib/go/src/debug/elf/testdata",
+    "/usr/lib/go/src/runtime/pprof/testdata",
+]
+reason = "ELF test files for other machines"
+
+# The build scripts for Plan 9, whose shell is rc; nothing runs them here.
+[[infer.skip]]
+paths = [
+    "/usr/lib/go/src/all.rc",
+    "/usr/lib/go/src/clean.rc",
+    "/usr/lib/go/src/make.rc",
+    "/usr/lib/go/src/run.rc",
+]
+reason = "Plan 9 build scripts"

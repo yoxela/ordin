@@ -72,7 +72,7 @@ exclude = [
 
 [[package]]
 name = "go"
-about = "a toolchain tarball: about 17,000 files, with the go and gofmt links in /usr/bin"
+about = "a toolchain tarball: about 17,000 files, links in /usr/bin, and test data left out of inference"
 licenses = { "BSD-3-Clause" = "usr/lib/go/LICENSE" }
 links = [
     { path = "usr/bin/go", target = "../lib/go/bin/go" },
@@ -85,16 +85,6 @@ size = 70680823
 sha256 = "7226736c2339719cda28fbf3a54d71aa63bcefe376e98cef00034268dab24840"
 format = "tar.gz"
 place = [{ from = "go", to = "usr/lib/go" }]
-# Inference reads every ELF file in a package as a program or library, so
-# these test files would make `ordin pack` refuse Go: they are built for other
-# machines and systems (i386, PowerPC, RISC-V, FreeBSD), and the x86-64 ones
-# would add requirements nothing installed needs. How a packager leaves paths
-# out of inference is a recipe decision of its own, not made here.
-exclude = [
-    { path = "go/src/debug/dwarf/testdata", reason = "ELF test files for other machines" },
-    { path = "go/src/debug/elf/testdata", reason = "ELF test files for other machines" },
-    { path = "go/src/runtime/pprof/testdata", reason = "ELF test files" },
-]
 
 [[package]]
 name = "jq"

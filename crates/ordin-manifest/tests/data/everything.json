@@ -503,6 +503,18 @@
       "text": "Restart after changing modules."
     }
   ],
+  "inference": {
+    "skip": [
+      {
+        "path": "/usr/share/nginx/test/elf",
+        "reason": "ELF test files for other machines"
+      },
+      {
+        "path": "/usr/share/nginx/test/scripts",
+        "reason": "Plan 9 scripts nobody runs on Linux"
+      }
+    ]
+  },
   "ignorable": [
     "declares.users.uid",
     "facets.*.digest-v2"

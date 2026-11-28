@@ -125,6 +125,7 @@ impl Manifest {
             abi: std::collections::BTreeMap::new(),
             fixes: Vec::new(),
             notices: Vec::new(),
+            inference_skip: Vec::new(),
             ignorable: Vec::new(),
             ignored: Vec::new(),
         }

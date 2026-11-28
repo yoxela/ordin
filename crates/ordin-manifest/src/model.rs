@@ -343,6 +343,8 @@ pub struct Manifest {
     pub fixes: Vec<String>,
     /// Notices shown once.
     pub notices: Vec<Notice>,
+    /// Paths whose files inference was told not to read, sorted by path.
+    pub inference_skip: Vec<InferenceSkip>,
     /// Fields an older reader may skip.
     pub ignorable: Vec<String>,
     /// The ignorable fields present, with where they were, kept so the
@@ -874,6 +876,20 @@ pub struct Support {
     /// What to move to.
     pub successor: Option<PackageName>,
 }
+
+/// A path whose files `ordin pack` and `ordin lint` don't infer
+/// requirements, provides or the architecture from: data that only looks
+/// like programs, such as test files built for other machines.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct InferenceSkip {
+    /// The path, with everything below it; under `/usr`.
+    pub path: FilePath,
+    /// Why: one line, 1 to [`SKIP_REASON_MAX`] characters.
+    pub reason: String,
+}
+
+/// The longest reason an inference skip may give, in characters.
+pub const SKIP_REASON_MAX: usize = 200;
 
 /// A notice.
 #[derive(Clone, Debug, PartialEq, Eq)]

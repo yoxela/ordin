@@ -134,7 +134,10 @@ pub enum InferError {
         arch: Arch,
     },
     /// A program or library built for a machine Ordin doesn't package for.
-    #[error("{path} is {what}, and Ordin packages only 64-bit x86_64 and aarch64")]
+    #[error(
+        "{path} is {what}, and Ordin packages only 64-bit x86_64 and aarch64; \
+         if nothing runs it, leave it out of inference with [[infer.skip]] in the recipe"
+    )]
     Foreign {
         /// The file.
         path: TreePath,
@@ -223,18 +226,27 @@ impl Atoms {
     }
 }
 
-fn skipped(path: &str) -> bool {
-    SKIPPED.iter().any(|dir| path.starts_with(dir))
+/// Whether `path` is `dir` or below it.
+pub(crate) fn below(path: &str, dir: &str) -> bool {
+    path.strip_prefix(dir)
+        .is_some_and(|rest| rest.is_empty() || rest.starts_with('/'))
+}
+
+/// Whether `path` is left out: below a [`SKIPPED`] directory, or at or below
+/// one of the package's own `skip` paths.
+fn skipped(path: &str, skip: &[FilePath]) -> bool {
+    SKIPPED.iter().any(|dir| path.starts_with(dir)) || skip.iter().any(|s| below(path, s.as_str()))
 }
 
 /// Infers what the files of `tree` need and provide, reading each through
-/// `source`.
+/// `source`. Files at or below a path in `skip` (the manifest's
+/// `inference.skip`) aren't read.
 ///
 /// # Errors
 ///
 /// A file that can't be read, programs or libraries for two
 /// architectures, or one for a machine Ordin doesn't package for.
-pub fn infer<S>(tree: &Tree, source: &mut S) -> Result<Inferred, InferError>
+pub fn infer<S>(tree: &Tree, source: &mut S, skip: &[FilePath]) -> Result<Inferred, InferError>
 where
     S: Source,
     S::Reader: Read + Seek,
@@ -246,7 +258,7 @@ where
         let Kind::File(file) = &entry.kind else {
             continue;
         };
-        if skipped(entry.path.as_str()) {
+        if skipped(entry.path.as_str(), skip) {
             continue;
         }
         let read_error = |source| InferError::Read {

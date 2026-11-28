@@ -15,10 +15,11 @@ mod lint {
     use std::os::unix::fs::{PermissionsExt, symlink};
     use std::path::{Path, PathBuf};
 
-    use object::elf::{EM_X86_64, ET_DYN};
+    use object::elf::{EM_386, EM_X86_64, ET_DYN, ET_EXEC};
     use ordin_archive::Reader;
     use ordin_pack::{
-        Finding, LintError, LintReport, Output, PackOptions, known_interpreter, lint, pack,
+        Finding, LintError, LintReport, Output, PackError, PackOptions, known_interpreter, lint,
+        pack,
     };
     use ordin_recipe::Allow;
     use tempfile::TempDir;
@@ -805,5 +806,85 @@ paths = ["/usr/bin/sg"]
             }
             other => panic!("{other:?}"),
         }
+    }
+
+    #[test]
+    fn skipped_paths_are_recorded_and_lint_skips_them_too() {
+        let dir = temp();
+        let i386 = Spec {
+            is_64: false,
+            ..spec(EM_386.0, ET_EXEC.0)
+        };
+        let root = root(
+            dir.path(),
+            &[
+                F("usr/bin/hello", build(&program()), 0o755),
+                F("usr/lib/hello/testdata/old", build(&i386), 0o644),
+                F(
+                    "usr/lib/hello/testdata/run.rc",
+                    b"#!/bin/rc\n".to_vec(),
+                    0o755,
+                ),
+                F("usr/lib/hello/plan9.rc", b"#!/bin/rc\n".to_vec(), 0o755),
+            ],
+        );
+        // Without a skip, the test file stops the package.
+        let e = pack(
+            &options(&root, ""),
+            &Output::Named(dir.path().to_path_buf()),
+        )
+        .unwrap_err();
+        assert!(matches!(e, PackError::Infer(_)), "{e:?}");
+        let recipe = "[[infer.skip]]\n\
+                      paths = [\"/usr/lib/hello/testdata/**\"]\n\
+                      reason = \"test files\"\n\
+                      [[infer.skip]]\n\
+                      paths = [\"/usr/lib/hello/plan9.rc\"]\n\
+                      reason = \"a Plan 9 script\"\n";
+        let out = dir.path().join("out");
+        fs::create_dir(&out).unwrap();
+        let packed = pack(&options(&root, recipe), &Output::Named(out.clone())).unwrap();
+        let recorded: Vec<(String, String)> = packed
+            .manifest
+            .inference_skip
+            .iter()
+            .map(|s| (s.path.to_string(), s.reason.clone()))
+            .collect();
+        assert_eq!(
+            recorded,
+            [
+                (
+                    "/usr/lib/hello/plan9.rc".to_owned(),
+                    "a Plan 9 script".to_owned()
+                ),
+                (
+                    "/usr/lib/hello/testdata".to_owned(),
+                    "test files".to_owned()
+                ),
+            ]
+        );
+        let requires: Vec<String> = packed
+            .manifest
+            .requires
+            .iter()
+            .map(ToString::to_string)
+            .collect();
+        assert_eq!(requires, ["so:libc.so.6@GLIBC_2.34"]);
+        // lint reads the skips from the manifest: no recipe, the same
+        // inference, and the skipped scripts' interpreter isn't warned about.
+        let report = linted(&packed.out, &[]).unwrap();
+        assert_eq!(seen(&report.warnings), []);
+        // A skip must match something in the package.
+        let missing = "[[infer.skip]]\npaths = [\"/usr/lib/hello/nothing\"]\nreason = \"x\"\n";
+        let e = pack(
+            &options(&root, &format!("{recipe}{missing}")),
+            &Output::Named(out),
+        )
+        .unwrap_err();
+        assert!(matches!(e, PackError::SkipMissing(_)), "{e:?}");
+        assert_eq!(
+            e.to_string(),
+            "/usr/lib/hello/nothing: left out of inference by [[infer.skip]], but nothing in the package is there"
+        );
     }
 }

@@ -15,7 +15,7 @@ use std::fs::File as FsFile;
 use std::io::{self, Cursor, Read, Seek, SeekFrom, Write};
 
 use ordin_archive::{PackTable, ReadError, Reader, Source};
-use ordin_core::{Atom, Facet};
+use ordin_core::{Atom, Facet, FilePath};
 use ordin_depexpr::Requirement;
 use ordin_manifest::Manifest;
 use ordin_recipe::{Allow, Check, below};
@@ -298,7 +298,13 @@ pub fn lint<R: Read + Seek>(
         facet_of: &facet_of,
         failed: None,
     };
-    let inferred = infer(&tree, &mut source)
+    // The same skips as when it was packed, from its own manifest.
+    let skip: Vec<FilePath> = manifest
+        .inference_skip
+        .iter()
+        .map(|s| s.path.clone())
+        .collect();
+    let inferred = infer(&tree, &mut source, &skip)
         .map_err(|e| source.failed.take().unwrap_or(LintError::Infer(e)))?;
 
     let mut found = Vec::new();
